@@ -75,7 +75,7 @@ const Canvas = props => {
       loop1:
       for (let i = strokes.length-1; i >=0 ; i--) {
         for (let j = 0; j < strokes[i].length/2; j++) {
-          if (Math.abs(offsetX-strokes[i][j*2]) < size& Math.abs(offsetY-strokes[i][j*2+1] < size)) {
+          if (Math.abs(offsetX-strokes[i][j*2]) < size & Math.abs(offsetY-strokes[i][j*2+1]) < size) {
             allStrokes.splice(i, 1)
 
             contextRef.current.clearRect(0, 0, canvasRef.current.width, canvasRef.current.height)
