@@ -1,11 +1,32 @@
 import { useRef, useEffect, useState } from 'react'
 
-class Stroke { // potentially save each pen stroke to its own class so it's easier to manipulate
-  constructor(path) {
-    this.stroke = path
-    this.length = path.length / 2
-    this.startX = path[0]
-    this.startY = path[1]
+/**
+ * Wrapper class for strokes
+ */
+class Stroke {
+  constructor(path=[]) {
+    this.path = path
+
+    if (path.length != 0) {
+      this.setStart(path[0], path[1])
+    }
+  }
+
+  addToPath(offsetX, offsetY) {
+    if (this.path.length == 0) {
+      this.setStart(offsetX, offsetY)
+    }
+
+    this.path.push(offsetX, offsetY)
+  }
+
+  getLength() {
+    return this.path.length / 2
+  }
+
+  // Note: Private helper, probably unnecessary.
+  setStart(startX, startY) {
+    [this.startX, this.startY] = [startX, startY]
   }
 }
 
@@ -30,7 +51,7 @@ const Canvas = props => { // The canvas class, covers the entire window
 
     // saves all strokes in strokes, and saves the current stroke in currStroke
     const [strokes, setStrokes] = useState([])
-    let currStroke = []
+    let currStroke = new Stroke()
 
     // mouse events, will direct to different functions depending on button pressed
     const mouseDown = ({nativeEvent}) => {
@@ -55,8 +76,7 @@ const Canvas = props => { // The canvas class, covers the entire window
       contextRef.current.moveTo(offsetX, offsetY)
       contextRef.current.arc(offsetX, offsetY, .5, 0, Math.PI*2) // draws a circle at the starting position
       contextRef.current.stroke() // actually draws it
-      currStroke.push(offsetX) // adds x, y to currStroke
-      currStroke.push(offsetY)
+      currStroke.addToPath(offsetX, offsetY) // adds x, y to currStroke
       // console.log(currStroke)
     }
     // when mouse is moving while LMB is pressed, will draw a line from last mouse position to current mouse position
@@ -65,16 +85,14 @@ const Canvas = props => { // The canvas class, covers the entire window
       const {offsetX, offsetY} = mouseEvent // gets current mouse position
       contextRef.current.lineTo(offsetX, offsetY)
       contextRef.current.stroke() // draws the lineTo
-      currStroke.push(offsetX) // adds x, y to currStroke
-      currStroke.push(offsetY)
+      currStroke.addToPath(offsetX, offsetY) // adds x, y to currStroke
     }
     // when LMB is lifted, will close current path and add the stroke to strokes and clear currStroke
     const endDraw = () => {
       isDrawing = false
-      if (currStroke.length === 0) return
-      setStrokes(strokes.concat(new Stroke(currStroke)))
+      if (currStroke.getLength() === 0) return
+      setStrokes(strokes.concat(currStroke))
       // console.log("mouse lifted \n", currStroke)
-      
     }
 
     // "(re)draws" all strokes by only drawing the difference
@@ -82,18 +100,15 @@ const Canvas = props => { // The canvas class, covers the entire window
     const redraw = (strokes, type='erase') => {
       if (strokes === undefined | strokes.length === 0) { // if no strokes then clear screen
         contextRef.current.clearRect(0, 0, canvasRef.current.width, canvasRef.current.height)
-        return
-      }
-      // sets to either only draw in the difference or remove the difference
-      if (type === 'draw') contextRef.current.globalCompositeOperation = 'source-out'
+        return } // sets to either only draw in the difference or remove the difference if (type === 'draw') contextRef.current.globalCompositeOperation = 'source-out'
       else if (type === 'erase') contextRef.current.globalCompositeOperation = 'destination-in'
 
       // adds a stroke to be redrawn
       const addStroke = (stroke) => {
         contextRef.current.moveTo(stroke.startX, stroke.startY)
         contextRef.current.arc(stroke.startX, stroke.startY, .5, 0, Math.PI*2) // draws a circle at the starting position
-        for (let i = 1; i < stroke.length; i++) {
-          contextRef.current.lineTo(stroke.stroke[i*2], stroke.stroke[i*2+1])
+        for (let i = 1; i < stroke.getLength(); i++) {
+          contextRef.current.lineTo(stroke.path[i*2], stroke.path[i*2+1])
         }
       }
 
@@ -126,8 +141,8 @@ const Canvas = props => { // The canvas class, covers the entire window
 
       loop1:
       for (let i = strokes.length-1; i >=0 ; i--) { // loops through each stroke in strokes
-        for (let j = 0; j < strokes[i].length; j++) { // loops through each x, y pair in a stroke
-          if (withinSquare(offsetX, offsetY, strokes[i].stroke[j*2], strokes[i].stroke[j*2+1], size)) {
+        for (let j = 0; j < strokes[i].getLength(); j++) { // loops through each x, y pair in a stroke
+          if (withinSquare(offsetX, offsetY, strokes[i].path[j*2], strokes[i].path[j*2+1], size)) {
             allStrokes.splice(i, 1) // if a stroke is within size, remove it from allStrokes
 
             // redraws all strokes left in allStrokes
