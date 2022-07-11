@@ -4,6 +4,8 @@ class Stroke { // potentially save each pen stroke to its own class so it's easi
   constructor(path) {
     this.stroke = path
     this.length = path.length / 2
+    this.startX = path[0]
+    this.startY = path[1]
   }
 }
 
@@ -46,14 +48,19 @@ const Canvas = props => { // The canvas class, covers the entire window
 
     // draws a stroke
     // when LMB is pressed, begins a new path and move it to the mouse's position
-    const startDraw = (mouseEvent) => { 
+    const startDraw = (mouseEvent) => {
+      setIsDrawing(true)
       const {offsetX, offsetY} = mouseEvent
       contextRef.current.beginPath()
       contextRef.current.moveTo(offsetX, offsetY)
-      setIsDrawing(true)
+      contextRef.current.arc(offsetX, offsetY, .5, 0, Math.PI*2) // draws a circle at the starting position
+      contextRef.current.stroke() // actually draws it
+      currStroke.push(offsetX) // adds x, y to currStroke
+      currStroke.push(offsetY)
+      console.log(currStroke)
     }
     // when mouse is moving while LMB is pressed, will draw a line from last mouse position to current mouse position
-    const draw = (mouseEvent) => { 
+    const draw = (mouseEvent) => {
       if (!isDrawing) return
       const {offsetX, offsetY} = mouseEvent // gets current mouse position
       contextRef.current.lineTo(offsetX, offsetY)
@@ -63,37 +70,53 @@ const Canvas = props => { // The canvas class, covers the entire window
     }
     // when LMB is lifted, will close current path and add the stroke to strokes and clear currStroke
     const endDraw = () => {
-      contextRef.current.closePath()
       setIsDrawing(false)
-      setStrokes(strokes.concat([currStroke]))
+      console.log("mouse lifted")
+      if (currStroke.length === 0) return
+      setStrokes(strokes.concat(new Stroke(currStroke)))
       console.log(currStroke)
       currStroke = []
       
     }
 
-    // (re)draws a stroke by passing in an array of x, y coords
-    const redraw = (path) => {
-      if (path === undefined) return
-      contextRef.current.beginPath()
-      contextRef.current.moveTo(path[0], path[1])
-      for (let i = 1; i < path.length/2; i++) {
-        contextRef.current.lineTo(path[i*2], path[i*2+1])
-        contextRef.current.stroke()
+    // "(re)draws" all strokes by only drawing the difference
+    // type: either 'draw' or 'erase'
+    const redraw = (strokes, type='erase') => {
+      if (strokes === undefined) return
+      // sets to either only draw in the difference or remove the difference (DOESN'T WORK YET)
+      if (type === 'draw') contextRef.current.globalCompositeOperation = 'source-out'
+      else if (type === 'erase') contextRef.current.globalCompositeOperation = 'source-over'//'destination-in'
+
+      // adds a stroke to be redrawn
+      const addStroke = (stroke) => {
+        contextRef.current.moveTo(stroke.startX, stroke.startY)
+        contextRef.current.arc(stroke.startX, stroke.startY, .5, 0, Math.PI*2) // draws a circle at the starting position
+        for (let i = 1; i < stroke.length; i++) {
+          contextRef.current.lineTo(stroke.stroke[i*2], stroke.stroke[i*2+1])
+        }
       }
-      contextRef.current.closePath()
+
+      // adds all strokes to be redrawn and then draws all at once
+      contextRef.current.clearRect(0, 0, canvasRef.current.width, canvasRef.current.height) // clears screen
+      contextRef.current.beginPath()
+      strokes.forEach(addStroke)
+      contextRef.current.stroke()
+      contextRef.current.globalCompositeOperation = 'source-over'
     }
 
     // erase strokes
     let lastX = 0, lastY = 0 // keeps track of the last mouse position so erase won't trigger if mouse did not move much
+
     const startErase = (mouseEvent) => {
       setIsErasing(true)
     }
     // loops through all arrays in strokes and remove any stroke close to the mouse
-    const erase = (mouseEvent) => { // when mouse is moving and RMB is pressed
+    // when mouse is moving and RMB is pressed
+    const erase = (mouseEvent) => {
       if (!isErasing | strokes.length === 0) return
       const {offsetX, offsetY} = mouseEvent // gets current mouse position
       if (withinSquare(offsetX, offsetY, lastX, lastY, 5)) return // if mouse didn't move much then we won't recheck
-      console.log("erasing")
+      // console.log("erasing")
       lastX = offsetX
       lastY = offsetY
 
@@ -102,13 +125,13 @@ const Canvas = props => { // The canvas class, covers the entire window
 
       loop1:
       for (let i = strokes.length-1; i >=0 ; i--) { // loops through each stroke in strokes
-        for (let j = 0; j < strokes[i].length/2; j++) { // loops through each x, y pair in a stroke
-          if (withinSquare(offsetX, offsetY, strokes[i][j*2], strokes[i][j*2+1], size)) {
+        for (let j = 0; j < strokes[i].length; j++) { // loops through each x, y pair in a stroke
+          if (withinSquare(offsetX, offsetY, strokes[i].stroke[j*2], strokes[i].stroke[j*2+1], size)) {
             allStrokes.splice(i, 1) // if a stroke is within size, remove it from allStrokes
 
             // redraws all strokes left in allStrokes
             contextRef.current.clearRect(0, 0, canvasRef.current.width, canvasRef.current.height) // clears screen
-            allStrokes.forEach(redraw)
+            redraw(allStrokes, 'erase')
             setStrokes(allStrokes) // update strokes, removing the ones deleted
             break loop1 // only erases 1 line
           }
