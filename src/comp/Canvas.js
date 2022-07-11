@@ -7,13 +7,13 @@ class Stroke {
   constructor(path=[]) {
     this.path = path
 
-    if (path.length != 0) {
+    if (path.length !== 0) {
       this.setStart(path[0], path[1])
     }
   }
 
   addToPath(offsetX, offsetY) {
-    if (this.path.length == 0) {
+    if (this.path.length === 0) {
       this.setStart(offsetX, offsetY)
     }
 
@@ -26,7 +26,23 @@ class Stroke {
 
   // Note: Private helper, probably unnecessary.
   setStart(startX, startY) {
-    [this.startX, this.startY] = [startX, startY]
+    this.startX = startX
+    this.startY = startY
+  }
+
+  // custom iterator, returns a list [x, y] on each iteration
+  [Symbol.iterator]() {
+    let index = 0
+    return {
+      next: () => {
+        if (index < this.getLength()) {
+          let result = {value: [this.path[index*2], this.path[index*2+1]], done: false}
+          index++
+          return result
+        }
+        return {value: index, done: true}
+      }
+    }
   }
 }
 
@@ -50,7 +66,8 @@ const Canvas = props => { // The canvas class, covers the entire window
     let isErasing = false
 
     // saves all strokes in strokes, and saves the current stroke in currStroke
-    const [strokes, setStrokes] = useState([])
+    let strokes = []
+    const setStrokes = (s) => strokes = s
     let currStroke = new Stroke()
 
     // mouse events, will direct to different functions depending on button pressed
@@ -92,15 +109,19 @@ const Canvas = props => { // The canvas class, covers the entire window
       isDrawing = false
       if (currStroke.getLength() === 0) return
       setStrokes(strokes.concat(currStroke))
+      currStroke = new Stroke()
       // console.log("mouse lifted \n", currStroke)
     }
 
-    // "(re)draws" all strokes by only drawing the difference
+    // (re)draws all strokes by only drawing the difference
     // type: either 'draw' or 'erase'
     const redraw = (strokes, type='erase') => {
       if (strokes === undefined | strokes.length === 0) { // if no strokes then clear screen
         contextRef.current.clearRect(0, 0, canvasRef.current.width, canvasRef.current.height)
-        return } // sets to either only draw in the difference or remove the difference if (type === 'draw') contextRef.current.globalCompositeOperation = 'source-out'
+        return 
+      }
+      // sets to either only draw in the difference or remove the difference
+      if (type === 'draw') contextRef.current.globalCompositeOperation = 'source-out'
       else if (type === 'erase') contextRef.current.globalCompositeOperation = 'destination-in'
 
       // adds a stroke to be redrawn
@@ -119,12 +140,15 @@ const Canvas = props => { // The canvas class, covers the entire window
       contextRef.current.globalCompositeOperation = 'source-over'
     }
 
+
     // erase strokes
-    let lastX = 0, lastY = 0 // keeps track of the last mouse position so erase won't trigger if mouse did not move much
+     // keeps track of the last mouse position so erase won't trigger if mouse did not move much
+    let lastX = 0, lastY = 0
 
     const startErase = (mouseEvent) => {
       console.log("# of strokes: ", strokes.length)
       isErasing = true
+      erase(mouseEvent)
     }
     // loops through all arrays in strokes and remove any stroke close to the mouse
     // when mouse is moving and RMB is pressed
@@ -132,23 +156,22 @@ const Canvas = props => { // The canvas class, covers the entire window
       if (!isErasing | strokes.length === 0) return
       const {offsetX, offsetY} = mouseEvent // gets current mouse position
       if (withinSquare(offsetX, offsetY, lastX, lastY, 5)) return // if mouse didn't move much then we won't recheck
-      // console.log("erasing")
       lastX = offsetX
       lastY = offsetY
-
+      
       const allStrokes = [...strokes] // makes a copy of strokes to manipulate
       const size = 5 // the "radius" to erase
 
       loop1:
       for (let i = strokes.length-1; i >=0 ; i--) { // loops through each stroke in strokes
-        for (let j = 0; j < strokes[i].getLength(); j++) { // loops through each x, y pair in a stroke
-          if (withinSquare(offsetX, offsetY, strokes[i].path[j*2], strokes[i].path[j*2+1], size)) {
+        for (const coord of strokes[i]) {
+          if (withinSquare(offsetX, offsetY, coord[0], coord[1], size)) {
             allStrokes.splice(i, 1) // if a stroke is within size, remove it from allStrokes
 
             // redraws all strokes left in allStrokes
             redraw(allStrokes, 'erase')
             setStrokes(allStrokes) // update strokes, removing the ones deleted
-            break loop1 // only erases 1 line
+            break loop1 // only erases 1 stroke
           }
         }
       }
@@ -174,7 +197,6 @@ const Canvas = props => { // The canvas class, covers the entire window
       context.lineWidth = 5
       context.lineJoin = 'round' // how lines are joined
       contextRef.current = context
-      
     }, [])
 
     // returns if 2 coords are within a 'length' of each other
