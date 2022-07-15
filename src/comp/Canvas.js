@@ -71,18 +71,21 @@ const Canvas = props => { // The canvas class, covers the entire window
     let currStroke = new Stroke()
 
     // mouse events, will direct to different functions depending on button pressed
-    const mouseDown = ({nativeEvent}) => {
+    const pointerDown = ({nativeEvent}) => {
       if (nativeEvent.button === 0) startDraw(nativeEvent)
       else if (nativeEvent.button === 2) startErase(nativeEvent)
     }
-    const mouseUp = ({nativeEvent}) => {
-      if (nativeEvent.button === 0) endDraw()
-      else if (nativeEvent.button === 2) endErase()
+    const pointerUp = ({nativeEvent}) => {
+      console.log("pointer up", nativeEvent.button, nativeEvent.buttons)
+      if (nativeEvent.button === 0 || nativeEvent.button === -1) endDraw()
+      if (nativeEvent.button === 2 || nativeEvent.button === -1) endErase()
     }
-    const mouseMove = ({nativeEvent}) => {
+    const pointerMove = ({nativeEvent}) => {
       draw(nativeEvent)
       erase(nativeEvent)
     }
+
+    const strokeWidth = 2
 
     // draws a stroke
     // when LMB is pressed, begins a new path and move it to the mouse's position
@@ -91,7 +94,7 @@ const Canvas = props => { // The canvas class, covers the entire window
       const {offsetX, offsetY} = mouseEvent
       contextRef.current.beginPath()
       contextRef.current.moveTo(offsetX, offsetY)
-      contextRef.current.arc(offsetX, offsetY, .5, 0, Math.PI*2) // draws a circle at the starting position
+      contextRef.current.arc(offsetX, offsetY, strokeWidth/10, 0, Math.PI*2) // draws a circle at the starting position
       contextRef.current.stroke() // actually draws it
       currStroke.addToPath(offsetX, offsetY) // adds x, y to currStroke
       // console.log(currStroke)
@@ -100,14 +103,22 @@ const Canvas = props => { // The canvas class, covers the entire window
     const draw = (mouseEvent) => {
       if (!isDrawing) return
       const {offsetX, offsetY} = mouseEvent // gets current mouse position
-      contextRef.current.lineTo(offsetX, offsetY)
-      contextRef.current.stroke() // draws the lineTo
       currStroke.addToPath(offsetX, offsetY) // adds x, y to currStroke
+
+      // draws the line
+      contextRef.current.lineTo(offsetX, offsetY)
+      contextRef.current.stroke()
     }
     // when LMB is lifted, will close current path and add the stroke to strokes and clear currStroke
     const endDraw = () => {
+      console.log('end draw')
       isDrawing = false
       if (currStroke.getLength() === 0) return
+      for (let i = 2; i < currStroke.getLength(); i++) {
+        var {x, y} = bezier(currStroke.path[i*2-4], currStroke.path[i*2-3], currStroke.path[i*2-2], currStroke.path[i*2-1], currStroke.path[i*2], currStroke.path[i*2+1])
+        currStroke.path[i*2-2] = x
+        currStroke.path[i*2-1] = y
+      }
       setStrokes(strokes.concat(currStroke))
       currStroke = new Stroke()
       // console.log("mouse lifted \n", currStroke)
@@ -121,15 +132,17 @@ const Canvas = props => { // The canvas class, covers the entire window
         return 
       }
       // sets to either only draw in the difference or remove the difference
-      if (type === 'draw') contextRef.current.globalCompositeOperation = 'source-out'
-      else if (type === 'erase') contextRef.current.globalCompositeOperation = 'destination-in'
+      // if (type === 'draw') contextRef.current.globalCompositeOperation = 'source-out'
+      // else if (type === 'erase') contextRef.current.globalCompositeOperation = 'destination-in'
+      contextRef.current.clearRect(0, 0, canvasRef.current.width, canvasRef.current.height)
 
       // adds a stroke to be redrawn
       const addStroke = (stroke) => {
         contextRef.current.moveTo(stroke.startX, stroke.startY)
-        contextRef.current.arc(stroke.startX, stroke.startY, .5, 0, Math.PI*2) // draws a circle at the starting position
-        for (let i = 1; i < stroke.getLength(); i++) {
-          contextRef.current.lineTo(stroke.path[i*2], stroke.path[i*2+1])
+        contextRef.current.arc(stroke.startX, stroke.startY, strokeWidth/10, 0, Math.PI*2) // draws a circle at the starting position
+        for (let i = 1; i < stroke.getLength()/2; i++) {
+          contextRef.current.quadraticCurveTo(stroke.path[i*4], stroke.path[i*4+1], stroke.path[i*4+2], stroke.path[i*4+3])
+          // contextRef.current.lineTo(stroke.path[i*2], stroke.path[i*2+1])
         }
       }
 
@@ -142,7 +155,7 @@ const Canvas = props => { // The canvas class, covers the entire window
 
 
     // erase strokes
-     // keeps track of the last mouse position so erase won't trigger if mouse did not move much
+    // keeps track of the last mouse position
     let lastX = 0, lastY = 0
 
     const startErase = (mouseEvent) => {
@@ -184,17 +197,18 @@ const Canvas = props => { // The canvas class, covers the entire window
     useEffect(() => {
       const canvas = canvasRef.current
       // makes the canvas "high resolution", apparantly we need to do this
-      canvas.width = window.innerWidth * 2
-      canvas.height = window.innerHeight * 2
+      const dpr = window.devicePixelRatio * 2
+      canvas.width = window.innerWidth * dpr
+      canvas.height = window.innerHeight * dpr
       canvas.style.width = `${window.innerWidth}px`
       canvas.style.height = `${window.innerHeight}px`
 
       // gets context which is what we use to draw and sets a few properties
       const context = canvas.getContext('2d')
-      context.scale(2,2)
+      context.scale(dpr,dpr)
       context.lineCap = 'round' // how the end of each line look
       context.strokeStyle = 'black' // sets the color of the stroke
-      context.lineWidth = 5
+      context.lineWidth = strokeWidth
       context.lineJoin = 'round' // how lines are joined
       contextRef.current = context
     }, [])
@@ -203,14 +217,21 @@ const Canvas = props => { // The canvas class, covers the entire window
     const withinSquare = (x1, y1, x2, y2, length) => {
       return Math.abs(x1-x2) <= length & Math.abs(y1-y2) <= length
     }
+
+    // takes in 3 points, calculates the quadratic bezier curve and return the middle of the curve
+    // aka smoothes out the middle point
+    const bezier = (x0, y0, x1, y1, x2, y2) => {
+      return {x : .5 ** 2 * x0 + 2 * .5 ** 2 * x1 + .5 **2 * x2, y : .5 ** 2 * y0 + 2 * .5 ** 2 * y1 + .5 **2 * y2}
+    }
   
   return (
       <canvas 
-        onMouseDown={mouseDown} 
-        onMouseUp={mouseUp} 
-        onMouseMove={mouseMove}
-        onMouseLeave={mouseUp}
+        onPointerDown={pointerDown} 
+        onPointerUp={pointerUp} 
+        onPointerMove={pointerMove}
+        onPointerLeave={pointerUp}
         onContextMenu={(e) => e.preventDefault()}
+        
         ref={canvasRef} 
       />
   )
