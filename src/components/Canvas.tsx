@@ -85,7 +85,6 @@ const Canvas = (props: {}) => { // The canvas class, covers the entire window
       else if (nativeEvent.button === 2) startErase(nativeEvent)
     }
     const pointerUp = ({nativeEvent}: {nativeEvent: MouseEvent}) => {
-      console.log("pointer up", nativeEvent.button, nativeEvent.buttons)
       if (nativeEvent.button === 0 || nativeEvent.button === -1) endDraw()
       if (nativeEvent.button === 2 || nativeEvent.button === -1) endErase()
     }
@@ -120,7 +119,6 @@ const Canvas = (props: {}) => { // The canvas class, covers the entire window
     }
     // when LMB is lifted, will close current path and add the stroke to strokes and clear currStroke
     const endDraw = () => {
-      console.log('end draw')
       isDrawing = false
       if (currStroke.getLength() === 0) return
       for (let i = 2; i < currStroke.getLength(); i++) {
@@ -231,7 +229,7 @@ const Canvas = (props: {}) => { // The canvas class, covers the entire window
 
     // takes in 3 points, calculates the quadratic bezier curve and return the middle of the curve
     // aka smoothes out the middle point
-    const bezier = (x0, y0, x1, y1, x2, y2) => {
+    const bezier = (x0: number, y0: number, x1: number, y1: number, x2: number, y2: number) => {
       return {x : .5 ** 2 * x0 + 2 * .5 ** 2 * x1 + .5 **2 * x2, y : .5 ** 2 * y0 + 2 * .5 ** 2 * y1 + .5 **2 * y2}
     }
   
