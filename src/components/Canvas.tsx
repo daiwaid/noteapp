@@ -4,13 +4,13 @@ import { useRef, useEffect, useState } from 'react'
  * Wrapper class for strokes
  */
 class Stroke {
-  static masterId: number = 0
-  path: number[]
-  startX: number|undefined              // these two might not want to be undefined
-  startY: number|undefined
-  id: number
+  private static masterId: number = 0
+  public path: number[]                           // TODO: Private after qcurve fixed
+  private startX: number|undefined
+  private startY: number|undefined
+  private id: number
 
-  constructor(path: number[]=[]) {
+  public constructor(path: number[]=[]) {
     this.path = path
     this.id = Stroke.masterId++
 
@@ -19,7 +19,7 @@ class Stroke {
     }
   }
 
-  addToPath(offsetX: number, offsetY: number) {
+  public addToPath(offsetX: number, offsetY: number) {
     if (this.path.length === 0) {
       this.setStart(offsetX, offsetY)
     }
@@ -27,26 +27,23 @@ class Stroke {
     this.path.push(offsetX, offsetY)
   }
 
-  getLength() {
-    return this.path.length / 2
+  public smoothPath() {
+    for (let i = 2; i < this.getLength(); i++) {
+      var {x, y} = Stroke.bezier(this.path[i*2-4], this.path[i*2-3], this.path[i*2-2], this.path[i*2-1], this.path[i*2], this.path[i*2+1])
+      this.path[i*2-2] = x
+      this.path[i*2-1] = y
+    }
   }
 
-  // Note: Private helper, probably unnecessary.
-  setStart(startX: number, startY: number) {
-    this.startX = startX
-    this.startY = startY
-  }
-
-  // custom iterator, returns a list [x, y] on each iteration
-  [Symbol.iterator]() {
+  // custom iterator, returns a tuple [x, y] on each iteration
+  public [Symbol.iterator]() {
     let index = 0
     return {
       next: () => {
         let result: {value: [number, number], done: boolean}
 
         if (index < this.getLength()) {
-          const coordinate:[number, number] = [this.path[index*2], this.path[index*2+1]]
-          result = {value: coordinate, done: false}
+          result = {value: this.getPathVertex(index), done: false}
           index++
         }
         else {
@@ -57,19 +54,61 @@ class Stroke {
       }
     }
   }
+
+  public isEmpty() {
+    return this.path.length === 0
+  }
+
+  public getPathVertex(index: number): [number, number] {
+    return [this.path[index * 2], this.path[index * 2 + 1]]
+  }
+
+  public getPath() {
+    return this.path
+  }
+
+  public getID() {
+    return this.id
+  }
+
+  public getLength() {
+    return this.path.length / 2
+  }
+
+  public getStartX() {
+    return this.startX
+  }
+
+  public getStartY() {
+    return this.startY
+  }
+
+  private setStart(startX: number, startY: number) {
+    this.startX = startX
+    this.startY = startY
+  }
+
+  // takes in 3 points, calculates the quadratic bezier curve and return the middle of the curve
+  // aka smoothes out the middle point
+  private static bezier = (x0: number, y0: number, x1: number, y1: number, x2: number, y2: number) => {
+    return {x : .5 ** 2 * x0 + 2 * .5 ** 2 * x1 + .5**2 * x2, y : .5 ** 2 * y0 + 2 * .5 ** 2 * y1 + .5 **2 * y2}
+  }
 }
 
-class Tile { // potentially divide up the screen to a few tiles so when erasing we only check strokes in one tile
-  static size = 2000 // size of each tile
-  startX: number // top left (smaller)
-  startY: number
-  endX: number // bottom right (bigger)
-  endY: number
-  strokes: Stroke[]
-  strokeIDs: number[]
-  neighboringTiles: Tile[]
+/**
+ * Divides up the canvas into sections containing strokes to optimize the erasing process
+ */
+class Tile {
+  private static size = 2000 // size of each tile
+  private startX: number // top left (smaller)
+  private startY: number
+  private endX: number // bottom right (bigger)
+  private endY: number
+  private strokes: Stroke[]
+  private strokeIDs: number[]
+  private neighboringTiles: Tile[]
 
-  constructor(x: number, y: number) { 
+  public constructor(x: number, y: number) { 
     this.startX = x
     this.startY = y
     this.endX = x + Tile.size
@@ -79,19 +118,42 @@ class Tile { // potentially divide up the screen to a few tiles so when erasing 
     this.strokeIDs = []
   }
 
-  addStroke(stroke: Stroke) {
+  public addStroke(stroke: Stroke) {
     this.strokes.push(stroke)
-    this.strokeIDs.push(stroke.id)
+    this.strokeIDs.push(stroke.getID())
   }
-  removeStroke(strokeID: number) {
+
+  public removeStroke(strokeID: number) {
     if (!this.strokeIDs.includes(strokeID)) return
-    this.strokes = this.strokes.filter((s) => s.id !== strokeID)
+    this.strokes = this.strokes.filter((s) => s.getID() !== strokeID)
+    this.strokeIDs = this.strokeIDs.filter((s) => s !== strokeID)
+  }
+
+  public isEmpty() {
+    return this.strokeIDs.length === 0
+  }
+
+  public numElements() {
+    return this.strokes.length
+  }
+
+  public getStrokes() {
+    return this.strokes
+  }
+
+  public getStroke(index: number) {
+    return this.strokes[index]
+  }
+  
+  public enclosesVertex(x: number, y: number) {
+    return x - this.startX >= 0 && this.endX - x > 0 && y - this.startY >= 0 && this.endY - y > 0
   }
 }
 
-// The canvas class, covers the entire window
+/**
+ * Canvas component covering the entire window
+ */
 const Canvas = (props: {}) => { 
-
     /************************
             Variables
     ************************/
@@ -154,12 +216,8 @@ const Canvas = (props: {}) => {
     // when LMB is lifted, will close current path and add the stroke to strokes and clear currStroke
     const endDraw = () => {
       isDrawing = false
-      if (currStroke.getLength() === 0) return
-      for (let i = 2; i < currStroke.getLength(); i++) {
-        var {x, y} = bezier(currStroke.path[i*2-4], currStroke.path[i*2-3], currStroke.path[i*2-2], currStroke.path[i*2-1], currStroke.path[i*2], currStroke.path[i*2+1])
-        currStroke.path[i*2-2] = x
-        currStroke.path[i*2-1] = y
-      }
+      if (currStroke.isEmpty()) return
+      currStroke.smoothPath()
       onScreenTiles[0].addStroke(currStroke) // NEED TO CHANGE LATER
       currStroke = new Stroke()
       // console.log("mouse lifted \n", currStroke)
@@ -179,10 +237,10 @@ const Canvas = (props: {}) => {
 
       // adds a stroke to be redrawn
       const addStroke = (stroke: Stroke) => {
-        contextRef.current.moveTo(stroke.startX, stroke.startY)
-        contextRef.current.arc(stroke.startX, stroke.startY, strokeWidth/10, 0, Math.PI*2) // draws a circle at the starting position
+        contextRef.current.moveTo(stroke.getStartX(), stroke.getStartY())
+        contextRef.current.arc(stroke.getStartX(), stroke.getStartY(), strokeWidth/10, 0, Math.PI*2) // draws a circle at the starting position
         for (let i = 1; i < stroke.getLength()/2; i++) {
-          contextRef.current.quadraticCurveTo(stroke.path[i*4], stroke.path[i*4+1], stroke.path[i*4+2], stroke.path[i*4+3])
+          contextRef.current.quadraticCurveTo(stroke.path[i*4], stroke.path[i*4+1], stroke.path[i*4+2], stroke.path[i*4+3])         // TODO: Use vertex getter
           // contextRef.current.lineTo(stroke.path[i*2], stroke.path[i*2+1])
         }
       }
@@ -212,21 +270,21 @@ const Canvas = (props: {}) => {
       const {offsetX, offsetY} = pointerEvent // gets current mouse position
       if (withinSquare(offsetX, offsetY, lastX, lastY, 5)) return // if mouse didn't move much then we won't recheck
       const currentTile = getTile(onScreenTiles, offsetX, offsetY)
-      if (currentTile.strokes.length === 0) return // if strokes is empty return
+      if (currentTile.isEmpty()) return
 
       lastX = offsetX
       lastY = offsetY
-      const allStrokes = [...currentTile.strokes] // makes a copy of strokes to manipulate
+      const allStrokes = [...currentTile.getStrokes()] // makes a copy of strokes to manipulate
       const size = 5 // the "radius" to erase
 
       loop1:
-      for (let i = currentTile.strokes.length-1; i >=0 ; i--) { // loops through each stroke in strokes
-        for (const coord of currentTile.strokes[i]) {
+      for (let i = currentTile.numElements() - 1; i >= 0; i--) { // loops through each stroke in strokes
+        for (const coord of (currentTile.getStrokes())[i]) {
           if (withinSquare(offsetX, offsetY, coord[0], coord[1], size)) {
             allStrokes.splice(i, 1) // if a stroke is within size, remove it from allStrokes      TODO: REDO THIS
             // redraws all strokes left in allStrokes
             redraw(allStrokes, 'erase')
-            currentTile.removeStroke(currentTile.strokes[i].id)
+            currentTile.removeStroke((currentTile.getStrokes())[i].getID())
             break loop1 // only erases 1 stroke
           }
         }
@@ -270,7 +328,7 @@ const Canvas = (props: {}) => {
    // returns the tile the pointer is currently in, returns null if pointer not in any tile
    const getTile = (tiles: Tile[], x: number, y: number) => {
     for (const tile of tiles) {
-      if (x - tile.startX >= 0 && tile.endX - x > 0 && y - tile.startY >= 0 && tile.endY - y > 0)
+      if (tile.enclosesVertex(x, y))
         return tile
     }
     return null
@@ -280,11 +338,6 @@ const Canvas = (props: {}) => {
       return Math.abs(x1-x2) <= length && Math.abs(y1-y2) <= length
     }
 
-    // takes in 3 points, calculates the quadratic bezier curve and return the middle of the curve
-    // aka smoothes out the middle point
-    const bezier = (x0: number, y0: number, x1: number, y1: number, x2: number, y2: number) => {
-      return {x : .5 ** 2 * x0 + 2 * .5 ** 2 * x1 + .5**2 * x2, y : .5 ** 2 * y0 + 2 * .5 ** 2 * y1 + .5 **2 * y2}
-    }
   
   return (
       <canvas 
