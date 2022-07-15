@@ -1,4 +1,4 @@
-import Canvas from './comp/Canvas'
+import Canvas from './components/Canvas'
 
 
 
