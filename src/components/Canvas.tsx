@@ -42,13 +42,18 @@ class Stroke {
     let index = 0
     return {
       next: () => {
+        let result: {value: [number, number], done: boolean}
+
         if (index < this.getLength()) {
           const coordinate:[number, number] = [this.path[index*2], this.path[index*2+1]]
-          let result: {value: [number, number], done: boolean}  = {value: coordinate, done: false}  // TODO: MASSIVELY JANK
+          result = {value: coordinate, done: false}
           index++
-          return result
         }
-        return {value: index, done: true}
+        else {
+          result = {value: undefined, done: true}
+        }
+
+        return result 
       }
     }
   }
@@ -217,9 +222,6 @@ const Canvas = (props: {}) => {
       loop1:
       for (let i = currentTile.strokes.length-1; i >=0 ; i--) { // loops through each stroke in strokes
         for (const coord of currentTile.strokes[i]) {
-          if (typeof(coord) === 'number') {  														// TODO: EXTREME JANKNESS
-			break;
-		  }
           if (withinSquare(offsetX, offsetY, coord[0], coord[1], size)) {
             allStrokes.splice(i, 1) // if a stroke is within size, remove it from allStrokes      TODO: REDO THIS
             // redraws all strokes left in allStrokes
