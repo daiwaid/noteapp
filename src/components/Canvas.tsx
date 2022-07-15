@@ -67,16 +67,17 @@ const Canvas = (props: {}) => {
     }
     // when LMB is lifted, will close current path and add the stroke to strokes and clear currStroke
     const endDraw = () => {
-      const onScreenTiles = tileManagerRef.current.getOnScreenTiles()
       isDrawing = false
       if (currStroke.isEmpty()) return
-      currStroke.smoothPath()
+
+      const onScreenTiles = tileManagerRef.current.getOnScreenTiles()
       onScreenTiles[0].addStroke(currStroke) // NEED TO CHANGE LATER
+      redraw(onScreenTiles[0].strokes, 'erase')
       currStroke = new Stroke()
       // console.log("mouse lifted \n", currStroke)
     }
 
-    // (re)draws all strokes by only drawing the difference
+    // "(re)draws" all strokes by only drawing the difference
     // type: either 'draw' or 'erase'
     const redraw = (strokes: Stroke[], type='erase') => {
       if (strokes === undefined || strokes.length === 0) { // if no strokes then clear screen
@@ -84,17 +85,17 @@ const Canvas = (props: {}) => {
         return 
       }
       // sets to either only draw in the difference or remove the difference
-      // if (type === 'draw') contextRef.current.globalCompositeOperation = 'source-out'
-      // else if (type === 'erase') contextRef.current.globalCompositeOperation = 'destination-in'
-      contextRef.current.clearRect(0, 0, canvasRef.current.width, canvasRef.current.height)
+      if (type === 'draw') contextRef.current.globalCompositeOperation = 'source-over'
+      else if (type === 'erase') contextRef.current.globalCompositeOperation = 'destination-in'
+      // contextRef.current.clearRect(0, 0, canvasRef.current.width, canvasRef.current.height) // clears whole screen, for testing only
 
       // adds a stroke to be redrawn
       const addStroke = (stroke: Stroke) => {
         contextRef.current.moveTo(stroke.getStartX(), stroke.getStartY())
         contextRef.current.arc(stroke.getStartX(), stroke.getStartY(), strokeWidth/10, 0, Math.PI*2) // draws a circle at the starting position
-        for (let i = 1; i < stroke.getLength()/2; i++) {
-          contextRef.current.quadraticCurveTo(stroke.path[i*4], stroke.path[i*4+1], stroke.path[i*4+2], stroke.path[i*4+3])         // TODO: Use vertex getter
-          // contextRef.current.lineTo(stroke.path[i*2], stroke.path[i*2+1])
+        for (const coord of stroke) {
+          // contextRef.current.quadraticCurveTo(path[i*4], path[i*4+1], path[i*4+2], path[i*4+3])
+          contextRef.current.lineTo(coord[0], coord[1])
         }
       }
 
@@ -135,10 +136,10 @@ const Canvas = (props: {}) => {
       for (let i = currentTile.numElements() - 1; i >= 0; i--) { // loops through each stroke in strokes
         for (const coord of (currentTile.getStrokes())[i]) {
           if (withinSquare(offsetX, offsetY, coord[0], coord[1], size)) {
-            allStrokes.splice(i, 1) // if a stroke is within size, remove it from allStrokes      TODO: REDO THIS
-            // redraws all strokes left in allStrokes
-            redraw(allStrokes, 'erase')
-            currentTile.removeStroke((currentTile.getStrokes())[i].getID())
+            // removes stroke from current tile then redraws        TODO: REMOVE FROM ALL TILES
+            const toErase = currentTile.getStrokes()[i]
+            currentTile.removeStroke(toErase.getID())
+            redraw(currentTile.getStrokes(), 'erase')
             break loop1 // only erases 1 stroke
           }
         }

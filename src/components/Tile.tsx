@@ -4,7 +4,7 @@ import Stroke from './Stroke'
  * Divides up the canvas into sections containing strokes to optimize the erasing process
  */
  class Tile {
-    public static size = 2000 // size of each tile
+    public static size = 3000 // size of each tile
     private static masterID = 0
 
     private id: number
