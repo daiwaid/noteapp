@@ -4,12 +4,15 @@ import { useRef, useEffect, useState } from 'react'
  * Wrapper class for strokes
  */
 class Stroke {
+  static masterId: number = 0
   path: number[]
   startX: number|undefined              // these two might not want to be undefined
   startY: number|undefined
+  id: number
 
   constructor(path: number[]=[]) {
     this.path = path
+    this.id = Stroke.masterId++
 
     if (path.length !== 0) {
       this.setStart(path[0], path[1])
@@ -52,20 +55,41 @@ class Stroke {
 }
 
 class Tile { // potentially divide up the screen to a few tiles so when erasing we only check strokes in one tile
-  x: number
-  y: number
-  strokes: number[]
+  static size = 2000 // size of each tile
+  startX: number // top left (smaller)
+  startY: number
+  endX: number // bottom right (bigger)
+  endY: number
+  strokes: Stroke[]
+  strokeIDs: number[]
+  neighboringTiles: Tile[]
 
-  constructor(x: number, y: number) { // top left
-    this.x = x
-    this.y = y
+  constructor(x: number, y: number) { 
+    this.startX = x
+    this.startY = y
+    this.endX = x + Tile.size
+    this.endY = y + Tile.size
+
     this.strokes = []
+    this.strokeIDs = []
+  }
+
+  addStroke(stroke: Stroke) {
+    this.strokes.push(stroke)
+    this.strokeIDs.push(stroke.id)
+  }
+  removeStroke(strokeID: number) {
+    if (!this.strokeIDs.includes(strokeID)) return
+    this.strokes = this.strokes.filter((s) => s.id !== strokeID)
   }
 }
 
+// The canvas class, covers the entire window
+const Canvas = (props: {}) => { 
 
-const Canvas = (props: {}) => { // The canvas class, covers the entire window
-  
+    /************************
+            Variables
+    ************************/
     // references to canvas and context, used for drawing
     const canvasRef = useRef(null)
     const contextRef = useRef(null)
@@ -73,33 +97,38 @@ const Canvas = (props: {}) => { // The canvas class, covers the entire window
     // states
     let isDrawing = false
     let isErasing = false
-
-    // saves all strokes in strokes, and saves the current stroke in currStroke
-    let strokes: Stroke[] = []
-    const setStrokes = (s: Stroke[]) => strokes = s
     let currStroke = new Stroke()
 
-    // mouse events, will direct to different functions depending on button pressed
-    const pointerDown = ({nativeEvent}: {nativeEvent: MouseEvent}) => {
+    let onScreenTiles: Tile[] = []
+
+
+    /************************
+          Mouse Events
+    ************************/
+    // will direct to different functions depending on button pressed
+    const pointerDown = ({nativeEvent}: {nativeEvent: PointerEvent}) => {
       if (nativeEvent.button === 0) startDraw(nativeEvent)
       else if (nativeEvent.button === 2) startErase(nativeEvent)
     }
-    const pointerUp = ({nativeEvent}: {nativeEvent: MouseEvent}) => {
+    const pointerUp = ({nativeEvent}: {nativeEvent: PointerEvent}) => {
       if (nativeEvent.button === 0 || nativeEvent.button === -1) endDraw()
       if (nativeEvent.button === 2 || nativeEvent.button === -1) endErase()
     }
-    const pointerMove = ({nativeEvent}: {nativeEvent: MouseEvent}) => {
+    const pointerMove = ({nativeEvent}: {nativeEvent: PointerEvent}) => {
       draw(nativeEvent)
       erase(nativeEvent)
     }
 
+
+    /************************
+            Draw
+    ************************/
     const strokeWidth = 2
 
-    // draws a stroke
     // when LMB is pressed, begins a new path and move it to the mouse's position
-    const startDraw = (mouseEvent: MouseEvent) => {
+    const startDraw = (pointerEvent: PointerEvent) => {
       isDrawing = true
-      const {offsetX, offsetY} = mouseEvent
+      const {offsetX, offsetY} = pointerEvent
       contextRef.current.beginPath()
       contextRef.current.moveTo(offsetX, offsetY)
       contextRef.current.arc(offsetX, offsetY, strokeWidth/10, 0, Math.PI*2) // draws a circle at the starting position
@@ -108,9 +137,9 @@ const Canvas = (props: {}) => { // The canvas class, covers the entire window
       // console.log(currStroke)
     }
     // when mouse is moving while LMB is pressed, will draw a line from last mouse position to current mouse position
-    const draw = (mouseEvent: MouseEvent) => {
+    const draw = (pointerEvent: PointerEvent) => {
       if (!isDrawing) return
-      const {offsetX, offsetY} = mouseEvent // gets current mouse position
+      const {offsetX, offsetY} = pointerEvent // gets current mouse position
       currStroke.addToPath(offsetX, offsetY) // adds x, y to currStroke
 
       // draws the line
@@ -126,7 +155,7 @@ const Canvas = (props: {}) => { // The canvas class, covers the entire window
         currStroke.path[i*2-2] = x
         currStroke.path[i*2-1] = y
       }
-      setStrokes(strokes.concat(currStroke))
+      onScreenTiles[0].addStroke(currStroke) // NEED TO CHANGE LATER
       currStroke = new Stroke()
       // console.log("mouse lifted \n", currStroke)
     }
@@ -161,38 +190,41 @@ const Canvas = (props: {}) => { // The canvas class, covers the entire window
     }
 
 
-    // erase strokes
+    /************************
+            Erase
+    ************************/
     // keeps track of the last mouse position
     let lastX = 0, lastY = 0
 
-    const startErase = (mouseEvent: MouseEvent) => {
-      console.log("# of strokes: ", strokes.length)
+    const startErase = (pointerEvent: PointerEvent) => {
       isErasing = true
-      erase(mouseEvent)
+      erase(pointerEvent)
     }
     // loops through all arrays in strokes and remove any stroke close to the mouse
     // when mouse is moving and RMB is pressed
-    const erase = (mouseEvent: MouseEvent) => {
-      if (!isErasing || strokes.length === 0) return
-      const {offsetX, offsetY} = mouseEvent // gets current mouse position
+    const erase = (pointerEvent: PointerEvent) => {
+      if (!isErasing) return
+      const {offsetX, offsetY} = pointerEvent // gets current mouse position
       if (withinSquare(offsetX, offsetY, lastX, lastY, 5)) return // if mouse didn't move much then we won't recheck
+      const currentTile = getTile(onScreenTiles, offsetX, offsetY)
+      if (currentTile.strokes.length === 0) return // if strokes is empty return
+
       lastX = offsetX
       lastY = offsetY
-      
-      const allStrokes = [...strokes] // makes a copy of strokes to manipulate
+      const allStrokes = [...currentTile.strokes] // makes a copy of strokes to manipulate
       const size = 5 // the "radius" to erase
 
       loop1:
-      for (let i = strokes.length-1; i >=0 ; i--) { // loops through each stroke in strokes
-        for (const coord of strokes[i]) {
+      for (let i = currentTile.strokes.length-1; i >=0 ; i--) { // loops through each stroke in strokes
+        for (const coord of currentTile.strokes[i]) {
           if (typeof(coord) === 'number') {  														// TODO: EXTREME JANKNESS
 			break;
 		  }
           if (withinSquare(offsetX, offsetY, coord[0], coord[1], size)) {
-            allStrokes.splice(i, 1) // if a stroke is within size, remove it from allStrokes
+            allStrokes.splice(i, 1) // if a stroke is within size, remove it from allStrokes      TODO: REDO THIS
             // redraws all strokes left in allStrokes
             redraw(allStrokes, 'erase')
-            setStrokes(allStrokes) // update strokes, removing the ones deleted
+            currentTile.removeStroke(currentTile.strokes[i].id)
             break loop1 // only erases 1 stroke
           }
         }
@@ -202,6 +234,10 @@ const Canvas = (props: {}) => { // The canvas class, covers the entire window
       isErasing = false
     }
   
+
+    /************************
+          useEffect
+    ************************/
     // initializes canvas
     useEffect(() => {
       const canvas = canvasRef.current
@@ -220,8 +256,23 @@ const Canvas = (props: {}) => { // The canvas class, covers the entire window
       context.lineWidth = strokeWidth
       context.lineJoin = 'round' // how lines are joined
       contextRef.current = context
+
+      // initialize Tiles
+      onScreenTiles.push(new Tile(0, 0))
     }, [])
 
+
+    /************************
+        Helper Functions
+    ************************/
+   // returns the tile the pointer is currently in, returns null if pointer not in any tile
+   const getTile = (tiles: Tile[], x: number, y: number) => {
+    for (const tile of tiles) {
+      if (x - tile.startX >= 0 && tile.endX - x > 0 && y - tile.startY >= 0 && tile.endY - y > 0)
+        return tile
+    }
+    return null
+   }
     // returns if 2 coords are within a 'length' of each other
     const withinSquare = (x1: number, y1: number, x2: number, y2: number, length: number) => {
       return Math.abs(x1-x2) <= length && Math.abs(y1-y2) <= length
@@ -230,7 +281,7 @@ const Canvas = (props: {}) => { // The canvas class, covers the entire window
     // takes in 3 points, calculates the quadratic bezier curve and return the middle of the curve
     // aka smoothes out the middle point
     const bezier = (x0: number, y0: number, x1: number, y1: number, x2: number, y2: number) => {
-      return {x : .5 ** 2 * x0 + 2 * .5 ** 2 * x1 + .5 **2 * x2, y : .5 ** 2 * y0 + 2 * .5 ** 2 * y1 + .5 **2 * y2}
+      return {x : .5 ** 2 * x0 + 2 * .5 ** 2 * x1 + .5**2 * x2, y : .5 ** 2 * y0 + 2 * .5 ** 2 * y1 + .5 **2 * y2}
     }
   
   return (
