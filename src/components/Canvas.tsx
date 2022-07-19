@@ -1,7 +1,6 @@
 import { useRef, useEffect } from 'react'
 import Stroke from './Stroke'
 import Tile from './Tile'
-import TileManager from './TileManager'
 
 /**
  * Canvas component covering the entire window
@@ -13,12 +12,13 @@ const Canvas = (props: {}) => {
     // references to canvas and context, used for drawing
     const canvasRef = useRef(null)
     const contextRef = useRef(null)
-    const tileManagerRef = useRef(null)
 
     // states
     let isDrawing = false
     let isErasing = false
     let currStroke = new Stroke()
+    let [offsetX, offsetY] = [0, 0] // the offset of the canvas
+    let tile = new Tile(0, 0)
 
 
     /************************
@@ -47,22 +47,22 @@ const Canvas = (props: {}) => {
     // when LMB is pressed, begins a new path and move it to the mouse's position
     const startDraw = (pointerEvent: PointerEvent) => {
       isDrawing = true
-      const {offsetX, offsetY} = pointerEvent
+      const [x, y] = [pointerEvent.offsetX, pointerEvent.offsetY] // gets current mouse position
       contextRef.current.beginPath()
-      contextRef.current.moveTo(offsetX, offsetY)
-      contextRef.current.arc(offsetX, offsetY, strokeWidth/10, 0, Math.PI*2) // draws a circle at the starting position
+      contextRef.current.moveTo(x, y)
+      contextRef.current.arc(x, y, strokeWidth/10, 0, Math.PI*2) // draws a circle at the starting position
       contextRef.current.stroke() // actually draws it
-      currStroke.addToPath(offsetX, offsetY) // adds x, y to currStroke
+      currStroke.addToPath(x, y) // adds x, y to currStroke
       // console.log(currStroke)
     }
     // when mouse is moving while LMB is pressed, will draw a line from last mouse position to current mouse position
     const draw = (pointerEvent: PointerEvent) => {
       if (!isDrawing) return
-      const {offsetX, offsetY} = pointerEvent // gets current mouse position
-      currStroke.addToPath(offsetX, offsetY) // adds x, y to currStroke
+      const [x, y] = [pointerEvent.offsetX, pointerEvent.offsetY] // gets current mouse position
+      currStroke.addToPath(x, y) // adds x, y to currStroke
 
       // draws the line
-      contextRef.current.lineTo(offsetX, offsetY)
+      contextRef.current.lineTo(x, y)
       contextRef.current.stroke()
     }
     // when LMB is lifted, will close current path and add the stroke to strokes and clear currStroke
@@ -70,9 +70,8 @@ const Canvas = (props: {}) => {
       isDrawing = false
       if (currStroke.isEmpty()) return
 
-      const onScreenTiles = tileManagerRef.current.getOnScreenTiles()
-      onScreenTiles[0].addStroke(currStroke) // NEED TO CHANGE LATER
-      redraw(onScreenTiles[0].strokes, 'erase')
+      tile.addStroke(currStroke) // NEED TO CHANGE LATER
+      // redraw(tile.getStrokes(), 'erase')
       currStroke = new Stroke()
       // console.log("mouse lifted \n", currStroke)
     }
@@ -93,9 +92,9 @@ const Canvas = (props: {}) => {
       const addStroke = (stroke: Stroke) => {
         contextRef.current.moveTo(stroke.getStartX(), stroke.getStartY())
         contextRef.current.arc(stroke.getStartX(), stroke.getStartY(), strokeWidth/10, 0, Math.PI*2) // draws a circle at the starting position
-        for (const coord of stroke) {
+        for (const coord of stroke.getCoords(offsetX, offsetY)) {
           // contextRef.current.quadraticCurveTo(path[i*4], path[i*4+1], path[i*4+2], path[i*4+3])
-          contextRef.current.lineTo(coord[0], coord[1])
+          contextRef.current.lineTo(coord.x, coord.y)
         }
       }
 
@@ -120,26 +119,26 @@ const Canvas = (props: {}) => {
     // loops through all arrays in strokes and remove any stroke close to the mouse
     // when mouse is moving and RMB is pressed
     const erase = (pointerEvent: PointerEvent) => {
-      const onScreenTiles = tileManagerRef.current.getOnScreenTiles(0, 0)
       if (!isErasing) return
-      const {offsetX, offsetY} = pointerEvent // gets current mouse position
-      if (withinSquare(offsetX, offsetY, lastX, lastY, 5)) return // if mouse didn't move much then we won't recheck
-      const currentTile = getTile(onScreenTiles, offsetX, offsetY)
-      if (currentTile.isEmpty()) return
+      
+      const [x, y] = [pointerEvent.offsetX, pointerEvent.offsetY] // gets current mouse position
+      if (withinSquare(x, y, lastX, lastY, 5)) return // if mouse didn't move much then we won't recheck
+      if (tile.isEmpty()) return
 
-      lastX = offsetX
-      lastY = offsetY
-      const allStrokes = [...currentTile.getStrokes()] // makes a copy of strokes to manipulate
+      lastX = x
+      lastY = y
+      const allStrokes = [...tile.getStrokes()] // makes a copy of strokes to manipulate
       const size = 5 // the "radius" to erase
 
       loop1:
-      for (let i = currentTile.numElements() - 1; i >= 0; i--) { // loops through each stroke in strokes
-        for (const coord of (currentTile.getStrokes())[i]) {
-          if (withinSquare(offsetX, offsetY, coord[0], coord[1], size)) {
+      for (let i = tile.numElements() - 1; i >= 0; i--) { // loops through each stroke in strokes
+        for (const coord of (tile.getStrokes())[i].getCoords(offsetX, offsetY)) {
+          if (withinSquare(x, y, coord.x, coord.y, size)) {
             // removes stroke from current tile then redraws        TODO: REMOVE FROM ALL TILES
-            const toErase = currentTile.getStrokes()[i]
-            currentTile.removeStroke(toErase.getID())
-            redraw(currentTile.getStrokes(), 'erase')
+            console.log("erasing")
+            const toErase = tile.getStrokes()[i]
+            tile.removeStroke(toErase.getID())
+            redraw(tile.getStrokes(), 'erase')
             break loop1 // only erases 1 stroke
           }
         }
@@ -171,9 +170,6 @@ const Canvas = (props: {}) => {
       context.lineWidth = strokeWidth
       context.lineJoin = 'round' // how lines are joined
       contextRef.current = context
-
-      // initializes TileManager
-      tileManagerRef.current = new TileManager(canvas.width, canvas.height)
     }, [])
 
 

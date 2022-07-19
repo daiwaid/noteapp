@@ -7,7 +7,7 @@ import Stroke from './Stroke'
     public static size = 3000 // size of each tile
     private static masterID = 0
 
-    private id: number
+    public id: number
     private startX: number // top left (smaller)
     private startY: number
     private endX: number // bottom right (bigger)
@@ -50,6 +50,7 @@ import Stroke from './Stroke'
         return x - this.startX >= 0 && this.endX - x > 0 && y - this.startY >= 0 && this.endY - y > 0
     }
 
+    public getID() { return this.id }
     public getStrokes() { return this.strokes }
     public getStroke(index: number) { return this.strokes[index] }
     public getNeighboringTiles() { return this.neighboringTiles }
