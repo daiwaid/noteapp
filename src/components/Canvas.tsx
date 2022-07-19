@@ -9,6 +9,7 @@ const Canvas = (props: {}) => {
     /************************
             Variables
     ************************/
+
     // references to canvas and context, used for drawing
     const canvasRef = useRef(null)
     const contextRef = useRef(null)
@@ -24,6 +25,7 @@ const Canvas = (props: {}) => {
     /************************
           Mouse Events
     ************************/
+
     // will direct to different functions depending on button pressed
     const pointerDown = ({nativeEvent}: {nativeEvent: PointerEvent}) => {
       if (nativeEvent.button === 0) startDraw(nativeEvent)
@@ -42,6 +44,7 @@ const Canvas = (props: {}) => {
     /************************
             Draw
     ************************/
+
     const strokeWidth = 2
 
     // when LMB is pressed, begins a new path and move it to the mouse's position
@@ -81,7 +84,7 @@ const Canvas = (props: {}) => {
     const redraw = (strokes: Stroke[], type='erase') => {
       if (strokes === undefined || strokes.length === 0) { // if no strokes then clear screen
         contextRef.current.clearRect(0, 0, canvasRef.current.width, canvasRef.current.height)
-        return 
+        return
       }
       // sets to either only draw in the difference or remove the difference
       if (type === 'draw') contextRef.current.globalCompositeOperation = 'source-over'
@@ -109,6 +112,7 @@ const Canvas = (props: {}) => {
     /************************
             Erase
     ************************/
+
     // keeps track of the last mouse position
     let lastX = 0, lastY = 0
 
@@ -128,19 +132,15 @@ const Canvas = (props: {}) => {
       lastX = x
       lastY = y
       const allStrokes = [...tile.getStrokes()] // makes a copy of strokes to manipulate
-      const size = 5 // the "radius" to erase
+      const eraserSize = 5 // the "radius" to erase
 
-      loop1:
       for (let i = tile.numElements() - 1; i >= 0; i--) { // loops through each stroke in strokes
-        for (const coord of (tile.getStrokes())[i].getCoords(offsetX, offsetY)) {
-          if (withinSquare(x, y, coord.x, coord.y, size)) {
-            // removes stroke from current tile then redraws        TODO: REMOVE FROM ALL TILES
-            console.log("erasing")
-            const toErase = tile.getStrokes()[i]
+        if (tile.getStroke(i).distanceTo(x, y) < eraserSize) {
+          console.log("erasing")
+            const toErase = tile.getStroke(i)
             tile.removeStroke(toErase.getID())
             redraw(tile.getStrokes(), 'erase')
-            break loop1 // only erases 1 stroke
-          }
+            break // only erases 1 stroke
         }
       }
     }
@@ -152,6 +152,7 @@ const Canvas = (props: {}) => {
     /************************
           useEffect
     ************************/
+
     // initializes canvas
     useEffect(() => {
       const canvas = canvasRef.current
@@ -176,6 +177,7 @@ const Canvas = (props: {}) => {
     /************************
         Helper Functions
     ************************/
+
    // returns the tile the pointer is currently in, returns null if pointer not in any tile
    const getTile = (tiles: Tile[], x: number, y: number) => {
     for (const tile of tiles) {
@@ -184,6 +186,7 @@ const Canvas = (props: {}) => {
       }
       return null
     }
+
     // returns if 2 coords are within a 'length' of each other
     const withinSquare = (x1: number, y1: number, x2: number, y2: number, length: number) => {
       return Math.abs(x1-x2) <= length && Math.abs(y1-y2) <= length
