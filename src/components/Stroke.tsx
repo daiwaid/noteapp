@@ -47,6 +47,7 @@
   
       const {normX, normY} = this.normalize(x, y)
       this.path.push(normX, normY)
+      return true
     }
 
     /** Returns the shortest distance from the stroke to the point (x, y) */
@@ -65,7 +66,7 @@
     public* getCoords(offsetX: number, offsetY: number) {
       let index = 0
       while (index < this.getLength()) {
-        yield this.getCoord(index, this.startX, this.startY)
+        yield this.getCoord(index, this.startX+offsetX, this.startY+offsetY)
         index++
       }
     }
