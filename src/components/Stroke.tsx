@@ -1,4 +1,3 @@
-
 /**
  * Wrapper class for strokes
  */
@@ -62,7 +61,7 @@
     }
   
     /** custom generator, takes in a offset coord and returns the offset {x, y} on each iteration */
-    public* getCoords(offsetX: number, offsetY: number) {
+    public* getCoords(offsetX: number=0, offsetY: number=0) {
       let index = 0
       while (index < this.getLength()) {
         yield this.getCoord(index, this.startX, this.startY)
@@ -79,7 +78,7 @@
 
     /** returns a coord along the path at index, optionally pass in offsets to offset the normalized coord */
     public getCoord(index: number, offsetX=0, offsetY=0) { 
-      return {x: this.path[index * 2] + offsetX, y: this.path[index * 2 + 1] + offsetY} 
+      return {x: this.path[index * 2] + this.startX + offsetX, y: this.path[index * 2 + 1] + this.startY + offsetY} 
     }
     public getPath() { return this.path }
     public getID() { return this.id }
