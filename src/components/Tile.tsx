@@ -27,35 +27,31 @@ import Stroke from './Stroke'
       this.strokeIDs = []
     }
   
-    public addStroke(stroke: Stroke) {
+    public addStroke = (stroke: Stroke) => {
       this.strokes.push(stroke)
       this.strokeIDs.push(stroke.getID())
     }
   
-    public removeStroke(strokeID: number) {
+    public removeStroke = (strokeID: number) => {
       if (!this.strokeIDs.includes(strokeID)) return
       this.strokes = this.strokes.filter((s) => s.getID() !== strokeID)
       this.strokeIDs = this.strokeIDs.filter((s) => s !== strokeID)
     }
   
-    public isEmpty() {
-      return this.strokeIDs.length === 0
-    }
+    public isEmpty = () => this.strokeIDs.length === 0
   
-    public numElements() {
-      return this.strokes.length
-    }
+    public numElements = () => this.strokes.length
     
-    public enclosesVertex(x: number, y: number) { 
+    public enclosesVertex = (x: number, y: number) => {
         return x - this.startX >= 0 && this.endX - x > 0 && y - this.startY >= 0 && this.endY - y > 0
     }
 
-    public getID() { return this.id }
-    public getStrokes() { return this.strokes }
-    public getStroke(index: number) { return this.strokes[index] }
-    public getNeighboringTiles() { return this.neighboringTiles }
+    public getID = () =>  this.id
+    public getStrokes = () => this.strokes
+    public getStroke = (index: number) => this.strokes[index]
+    public getNeighboringTiles = () => this.neighboringTiles
 
-    public setNeighboringTiles(newNeighbors: {left: Tile, right: Tile, up: Tile, down: Tile}) {
+    public setNeighboringTiles = (newNeighbors: {left: Tile, right: Tile, up: Tile, down: Tile}) => {
         this.neighboringTiles = newNeighbors
     }
   }

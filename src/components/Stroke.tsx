@@ -27,7 +27,7 @@
           Functions
     ************************/
 
-    public addToPath(x: number, y: number) {
+    public addToPath = (x: number, y: number) => {
       if (this.path.length === 0) {
         this.setStart(x, y)
       }
@@ -51,7 +51,7 @@
     }
 
     /** Returns the shortest distance from the stroke to the point (x, y) */
-    public distanceTo(x: number, y: number) {
+    public distanceTo = (x: number, y: number) => {
       let shortest = 9999999
       for (let i = 0; i < this.getLength()-1; i++) {
         const p0 = this.getCoord(i, this.startX, this.startY)
@@ -71,7 +71,7 @@
       }
     }
   
-    public isEmpty() { return this.path.length === 0 }
+    public isEmpty = () => this.path.length === 0
 
 
     /************************
@@ -79,26 +79,26 @@
     ************************/
 
     /** returns a coord along the path at index, optionally pass in offsets to offset the normalized coord */
-    public getCoord(index: number, offsetX=0, offsetY=0) { 
+    public getCoord = (index: number, offsetX=0, offsetY=0) => { 
       return {x: this.path[index * 2] + offsetX, y: this.path[index * 2 + 1] + offsetY} 
     }
-    public getPath() { return this.path }
-    public getID() { return this.id }
-    public getLength() { return this.path.length / 2 }
-    public getStartX() { return this.startX }
-    public getStartY() { return this.startY }
+    public getPath = () => this.path
+    public getID = () => this.id
+    public getLength = () => this.path.length / 2
+    public getStartX = (offset=0) => this.startX+offset
+    public getStartY = (offset=0) => this.startY+offset
 
 
     /************************
         Helper functions
     ************************/
 
-    private setStart(startX: number, startY: number) {
+    private setStart = (startX: number, startY: number) => {
       this.startX = startX
       this.startY = startY
     }
 
-    private smoothPath() {
+    private smoothPath = () => {
       for (let i = 2; i < this.getLength(); i++) {
         const {x, y} = Stroke.bezier(this.path[i*2-4], this.path[i*2-3], this.path[i*2-2], this.path[i*2-1], this.path[i*2], this.path[i*2+1])
         this.path[i*2-2] = x
@@ -107,13 +107,13 @@
     }
 
     /** Returns the last two points stored, in order to smooth the curve. */
-    private getLastTwoPoints() {
+    private getLastTwoPoints = () => {
       const l = this.path.length
       return {x0: this.path[l-4], y0: this.path[l-3], x1: this.path[l-2], y1: this.path[l-1]}
     }
 
     /** Normalizes a coord based on startX, startY values */
-    private normalize(x: number, y: number) {
+    private normalize = (x: number, y: number) => {
       return {normX: x-this.startX, normY: y-this.startY}
     }
 
@@ -124,7 +124,7 @@
     }
 
     /** Finds the distance between a point and a line formed by 2 points in 2D */
-    private static distance(px: number, py: number, lx0: number, ly0: number, lx1: number, ly1: number) {
+    private static distance = (px: number, py: number, lx0: number, ly0: number, lx1: number, ly1: number) => {
       const ux = px - lx0
       const uy = py - ly0
       const vx = lx1 - lx0

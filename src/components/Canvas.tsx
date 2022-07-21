@@ -25,6 +25,78 @@ class Canvas extends React.Component {
   private offsetY = 0
   private tile = new Tile(0, 0)
 
+  // keeps track of previous/future states for animations
+  private toOffsetX = this.offsetX
+  private toOffsetY = this.offsetY
+
+
+  /************************
+          Render
+  ************************/
+
+  /** "(re)draws" all strokes by only drawing the difference;
+   * type: either 'draw' or 'erase' */
+  private redraw = (strokes: Stroke[], type='erase') => {
+
+    if (strokes === undefined || strokes.length === 0) { // if no strokes then clear screen
+      this.context.clearRect(0, 0, this.canvas.width, this.canvas.height)
+      return
+    }
+    // sets to either only draw in the difference or remove the difference
+    if (type === 'draw') {
+      this.context.globalCompositeOperation = 'source-over'
+      this.context.clearRect(0, 0, this.canvas.width, this.canvas.height)
+    }
+    else if (type === 'erase') this.context.globalCompositeOperation = 'destination-in'
+    // this.context.clearRect(0, 0, this.canvas.width, this.canvas.height) // clears whole screen, for testing only
+
+    /** adds a stroke to be redrawn */
+    const addStroke = (stroke: Stroke) => {
+      this.context.moveTo(stroke.getStartX(this.offsetX), stroke.getStartY(this.offsetY))
+      this.context.arc(stroke.getStartX(this.offsetX), stroke.getStartY(this.offsetY), this.strokeWidth/10, 0, Math.PI*2) // draws a circle at the starting position
+      for (const coord of stroke.getCoords(this.offsetX, this.offsetY)) {
+        // this.context.quadraticCurveTo(path[i*4], path[i*4+1], path[i*4+2], path[i*4+3])
+        this.context.lineTo(coord.x, coord.y)
+      }
+    }
+
+    // adds all strokes to be redrawn and then draws all at once
+    this.context.beginPath()
+    strokes.forEach(addStroke)
+    this.context.stroke()
+    this.context.globalCompositeOperation = 'source-over'
+  }
+
+  /** Re-renders the canvas repeatedly until no more changes are detected. */
+  private rerender = () => {
+    let prevTimeStamp = -1
+    let frame = 0
+
+    // renders 1 frame
+    const animate = (timeStamp: DOMHighResTimeStamp) => {
+      let doneChanging = true
+      if (prevTimeStamp === -1) prevTimeStamp = timeStamp
+      const timestep = timeStamp - prevTimeStamp
+
+      // checks page movement
+      if (this.toOffsetX != this.offsetX) {
+        this.offsetX = Canvas.smoothTransition(this.offsetX, this.toOffsetX, frame, timestep)
+        if (this.toOffsetX != this.offsetX) doneChanging = false
+      }
+      if (this.toOffsetY != this.offsetY) {
+        
+        this.offsetY = Canvas.smoothTransition(this.offsetY, this.toOffsetY, frame, timestep)
+        if (this.toOffsetY != this.offsetY) doneChanging = false
+      }
+
+      this.redraw(this.tile.getStrokes(), 'draw')
+      // console.log(doneChanging)
+      if (!doneChanging) window.requestAnimationFrame(animate)
+      frame++
+    }
+    window.requestAnimationFrame(animate)
+  }
+
 
   /************************
           Draw
@@ -40,16 +112,16 @@ class Canvas extends React.Component {
     this.context.moveTo(x, y)
     this.context.arc(x, y, this.strokeWidth/10, 0, Math.PI*2) // draws a circle at the starting position
     this.context.stroke() // actually draws it
-    this.currStroke.addToPath(x, y) // adds x, y to currStroke
-    this.roughStroke.push(x, y)
+    this.currStroke.addToPath(x-this.offsetX, y-this.offsetY) // adds x, y to currStroke
+    this.roughStroke.push(x-this.offsetX, y-this.offsetY)
     // console.log(currStroke)
   }
   // when mouse is moving while LMB is pressed, will draw a line from last mouse position to current mouse position
   private draw = (pointerEvent: PointerEvent) => {
     if (!this.isDrawing) return
     const [x, y] = [pointerEvent.offsetX, pointerEvent.offsetY] // gets current mouse position
-    this.roughStroke.push(x, y) // adds x, y to currStroke
-    if (this.currStroke.addToPath(x, y))
+    this.roughStroke.push(x-this.offsetX, y-this.offsetY) // adds x, y to currStroke
+    if (this.currStroke.addToPath(x-this.offsetX, y-this.offsetY))
 
 
     // draws the line
@@ -65,35 +137,6 @@ class Canvas extends React.Component {
     // redraw(tile.getStrokes(), 'erase')
     this.currStroke = new Stroke()
     // console.log("mouse lifted \n", currStroke)
-  }
-
-  // "(re)draws" all strokes by only drawing the difference
-  // type: either 'draw' or 'erase'
-  private redraw = (strokes: Stroke[], type='erase') => {
-    if (strokes === undefined || strokes.length === 0) { // if no strokes then clear screen
-      this.context.clearRect(0, 0, this.canvas.width, this.canvas.height)
-      return
-    }
-    // sets to either only draw in the difference or remove the difference
-    if (type === 'draw') this.context.globalCompositeOperation = 'source-over'
-    else if (type === 'erase') this.context.globalCompositeOperation = 'destination-in'
-    // this.context.clearRect(0, 0, canvas.width, canvas.height) // clears whole screen, for testing only
-
-    // adds a stroke to be redrawn
-    const addStroke = (stroke: Stroke) => {
-      this.context.moveTo(stroke.getStartX(), stroke.getStartY())
-      this.context.arc(stroke.getStartX(), stroke.getStartY(), this.strokeWidth/10, 0, Math.PI*2) // draws a circle at the starting position
-      for (const coord of stroke.getCoords(this.offsetX, this.offsetY)) {
-        // this.context.quadraticCurveTo(path[i*4], path[i*4+1], path[i*4+2], path[i*4+3])
-        this.context.lineTo(coord.x, coord.y)
-      }
-    }
-
-    // adds all strokes to be redrawn and then draws all at once
-    this.context.beginPath()
-    strokes.forEach(addStroke)
-    this.context.stroke()
-    this.context.globalCompositeOperation = 'source-over'
   }
 
 
@@ -115,7 +158,7 @@ class Canvas extends React.Component {
     if (!this.isErasing) return
     
     const [x, y] = [pointerEvent.offsetX, pointerEvent.offsetY] // gets current mouse position
-    if (Canvas.withinSquare(x, y, this.lastX, this.lastY, 5)) return // if mouse didn't move much then we won't recheck
+    if (Canvas.withinSquare(x-this.offsetX, y-this.offsetY, this.lastX-this.offsetX, this.lastY-this.offsetY, 5)) return // if mouse didn't move much then we won't recheck
     if (this.tile.isEmpty()) return
 
     this.lastX = x
@@ -123,7 +166,7 @@ class Canvas extends React.Component {
     const eraserSize = 5 // the "radius" to erase
 
     for (let i = this.tile.numElements() - 1; i >= 0; i--) { // loops through each stroke in strokes
-      if (this.tile.getStroke(i).distanceTo(x, y) < eraserSize) {
+      if (this.tile.getStroke(i).distanceTo(x-this.offsetX, y-this.offsetY) < eraserSize) {
         console.log("erasing")
           const toErase = this.tile.getStroke(i)
           this.tile.removeStroke(toErase.getID())
@@ -141,22 +184,24 @@ class Canvas extends React.Component {
           Other
   ************************/
   private scroll = (wheelEvent: WheelEvent) => {
-    
+    this.toOffsetX += wheelEvent.deltaX/2
+    this.toOffsetY -= wheelEvent.deltaY/2
+    this.rerender()
   }
   private zoom = (wheelEvent: WheelEvent) => {
 
   }
   private resize = () => {
     const dpr = window.devicePixelRatio * 2
-    this.canvas.width = window.innerWidth * dpr
-    this.canvas.height = window.innerHeight * dpr
-    this.canvas.style.width = `${window.innerWidth}px`
-    this.canvas.style.height = `${window.innerHeight}px`
-    this.context.scale(dpr,dpr)
-    this.context.lineCap = 'round' // how the end of each line look
-    this.context.strokeStyle = 'black' // sets the color of the stroke
-    this.context.lineWidth = this.strokeWidth
-    this.context.lineJoin = 'round' // how lines are joined
+    this.canvas.width = Math.floor(window.innerWidth * dpr)
+    this.canvas.height = Math.floor(window.innerHeight * dpr)
+    this.canvas.style.width = `${window.innerWidth-10}px`
+    this.canvas.style.height = `${window.innerHeight-10}px`
+    // this.context.scale(dpr,dpr)
+    // this.context.lineCap = 'round' // how the end of each line look
+    // this.context.strokeStyle = 'black' // sets the color of the stroke
+    // this.context.lineWidth = this.strokeWidth
+    // this.context.lineJoin = 'round' // how lines are joined
     this.redraw(this.tile.getStrokes())
   }
 
@@ -177,6 +222,14 @@ class Canvas extends React.Component {
   // returns if 2 coords are within a 'length' of each other
   private static withinSquare = (x1: number, y1: number, x2: number, y2: number, length: number) => {
     return Math.abs(x1-x2) <= length && Math.abs(y1-y2) <= length
+  }
+
+  // smoothly transitions from x0 to x1, returns what x0 should become in the next time step
+  private static smoothTransition = (x0: number, x1: number, frame: number, timestep: number) => {
+    console.log(x0, x1)
+    const cutoff = 0.1
+    if (Math.abs(x1 - x0) < cutoff) return x1
+    return x0 + (x1-x0)*frame / (Math.abs(x1-x0)+frame) * timestep/1000
   }
 
   
@@ -211,6 +264,7 @@ class Canvas extends React.Component {
     this.canvas = this.canvasRef.current
     // makes the canvas "high resolution", apparantly we need to do this
     const dpr = window.devicePixelRatio * 2
+    console.log(dpr)
     this.canvas.width = window.innerWidth * dpr
     this.canvas.height = window.innerHeight * dpr
     this.canvas.style.width = `${window.innerWidth}px`
@@ -225,7 +279,7 @@ class Canvas extends React.Component {
     this.context.lineJoin = 'round' // how lines are joined
 
     // adds window resize listener
-    // window.addEventListener('resize', resize)
+    window.addEventListener('resize', this.resize)
   }
 
   shouldComponentUpdate(nextProps: Readonly<{}>, nextState: Readonly<{}>, nextContext: any): boolean {
