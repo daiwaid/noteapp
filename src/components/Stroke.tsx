@@ -64,12 +64,20 @@
     public* getCoords(offsetX: number=0, offsetY: number=0) {
       let index = 0
       while (index < this.getLength()) {
-        yield this.getCoord(index, this.startX, this.startY)
+        yield this.getCoord(index, this.startX + offsetX, this.startY + offsetY)
         index++
       }
     }
   
     public isEmpty() { return this.path.length === 0 }
+
+    public hasVertex(x: number, y: number) {
+      for (const coord of this.getCoords(0, 0)) {                                                  // TODO: Offset?
+        if (x === coord.x && y === coord.y) return true
+      }
+
+      return false
+    }
 
 
     /************************
@@ -78,7 +86,7 @@
 
     /** returns a coord along the path at index, optionally pass in offsets to offset the normalized coord */
     public getCoord(index: number, offsetX=0, offsetY=0) { 
-      return {x: this.path[index * 2] + this.startX + offsetX, y: this.path[index * 2 + 1] + this.startY + offsetY} 
+      return {x: this.path[index * 2] + offsetX, y: this.path[index * 2 + 1] + offsetY} 
     }
     public getPath() { return this.path }
     public getID() { return this.id }
