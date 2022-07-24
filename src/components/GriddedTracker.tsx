@@ -54,7 +54,7 @@ export default class GriddedTracker implements StrokeTracker {
     for (const coord of stroke.getCoords()) {
       const [row, col] = this.getTileCoordinates(coord)
 
-      // console.log(coord)                         // used for debugging
+      // console.log(coord)                         // NOTE: used for debugging
       // console.log(row, col)
 
       // ensures id in row/col headers
@@ -86,8 +86,10 @@ export default class GriddedTracker implements StrokeTracker {
       this.colStrokes[col].delete(id)
 
       const gridStack = this.grid[row][col]
-      if (gridStack.length >= 0 && gridStack[gridStack.length - 1] === id) {
-        gridStack.pop()
+      
+      let index = gridStack.lastIndexOf(id)  // TODO: Possibly reconfigure underlying structure for O(1) deregisters
+      if (index >= 0) {
+        gridStack.splice(index, 1)
       }
     }
 
