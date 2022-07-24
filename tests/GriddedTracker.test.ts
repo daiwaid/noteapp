@@ -15,9 +15,15 @@ const VertexChecker = class {
   }
 }
 
+let tracker: GriddedTracker
+
+beforeEach(() => {
+  tracker = new GriddedTracker([100, 100], [10, 10])
+});
+
 describe('Register and query tests', () => {
   test('0 stroke unequal segmenting', () => {
-    const tracker = new GriddedTracker(100, 100, 3, 3)
+    tracker = new GriddedTracker([100, 100], [3, 3])
     const vc = new VertexChecker(tracker)
 
     // Random checks in the middle
@@ -39,7 +45,6 @@ describe('Register and query tests', () => {
     stroke.addToPath(32, 20)
     stroke.addToPath(95, 50)
 
-    const tracker = new GriddedTracker(100, 100, 10, 10)
     tracker.registerStroke(stroke)
 
     const vc = new VertexChecker(tracker)
@@ -80,7 +85,6 @@ describe('Register and query tests', () => {
     stroke2.addToPath(5, 23)
     stroke2.addToPath(47,23)
 
-    const tracker = new GriddedTracker(100, 100, 10, 10)
     tracker.registerStroke(stroke1)
     tracker.registerStroke(stroke2)
     
@@ -117,7 +121,6 @@ describe('Register and query tests', () => {
     stroke3.addToPath(95, 50) // 3
     stroke3.addToPath(95, 90) // 1
 
-    const tracker = new GriddedTracker(100, 100, 10, 10)
     tracker.registerStroke(stroke1)
     tracker.registerStroke(stroke2)
     tracker.registerStroke(stroke3)
@@ -142,8 +145,6 @@ describe('Register and query tests', () => {
 
 describe('Delete tests', () => {
   test('Deregistering a nonexistent stroke', () => {
-    const tracker = new GriddedTracker(100, 100, 10, 10)
-
     const stroke = new Stroke()
     stroke.addToPath(50, 50)
 
@@ -162,7 +163,6 @@ describe('Delete tests', () => {
     stroke.addToPath(50, 50)
     stroke.addToPath(60, 52)
 
-    const tracker = new GriddedTracker(100, 100, 10, 10)
     tracker.registerStroke(stroke)
     tracker.deregisterStroke(stroke)
 
@@ -178,7 +178,6 @@ describe('Delete tests', () => {
     stroke.addToPath(54, 52)
     stroke.addToPath(20, 70)
 
-    const tracker = new GriddedTracker(100, 100, 10, 10)
     tracker.registerStroke(stroke)
     tracker.deregisterStroke(stroke)
 
@@ -192,7 +191,6 @@ describe('Delete tests', () => {
     stroke.addToPath(54, 52)
     stroke.addToPath(20, 70)
 
-    const tracker = new GriddedTracker(100, 100, 10, 10)
     expect(tracker.registerStroke(stroke)).toEqual(true)
     expect(tracker.registerStroke(stroke)).toEqual(false)
     expect(tracker.deregisterStroke(stroke)).toEqual(true)
@@ -215,7 +213,6 @@ describe('Delete tests', () => {
     stroke2.addToPath(53, 30)
     stroke2.addToPath(60, 10)
 
-    const tracker = new GriddedTracker(100, 100, 10, 10)
     tracker.registerStroke(stroke1)
     tracker.registerStroke(stroke2)
     tracker.deregisterStroke(stroke2)
@@ -244,7 +241,6 @@ describe('Delete tests', () => {
     stroke3.addToPath(95, 50) // 3
     stroke3.addToPath(95, 90) // 1
 
-    const tracker = new GriddedTracker(100, 100, 10, 10)
     tracker.registerStroke(stroke1)
     tracker.registerStroke(stroke2)
     tracker.registerStroke(stroke3)
@@ -288,7 +284,6 @@ describe('Delete tests', () => {
     stroke3.addToPath(95, 50) // 3
     stroke3.addToPath(95, 90) // 1
 
-    const tracker = new GriddedTracker(100, 100, 10, 10)
     tracker.registerStroke(stroke1)
     tracker.registerStroke(stroke2)
     tracker.registerStroke(stroke3)

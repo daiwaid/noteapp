@@ -1,5 +1,5 @@
 import Stroke from './Stroke'
-import { StrokeTracker } from './StrokeTracker'
+import StrokeTracker from './StrokeTracker'
 
 /**
  * Stroke tracker that utilizes an underlying grid to track strokes
@@ -12,7 +12,10 @@ export default class GriddedTracker implements StrokeTracker {
   dim: [number, number]     // The dimensions of the region to be tracked
   scale: [number, number]   // The scale of each dimension
 
-  public constructor(dimX: number, dimY: number, scaleX: number=10, scaleY: number=10) {
+  public constructor(dim: [number, number], scale: [number, number]=[10, 10]) {
+    const [dimX, dimY] = dim
+    const [scaleX, scaleY] = scale
+
     if (dimX < 0 || dimY < 0) {
       throw "dimensions must be greater than 0"
     }

@@ -3,7 +3,7 @@ import Stroke from './Stroke'
 /**
  * Used as a generalized interface for querying strokes from a canvas
  */
-export interface StrokeTracker {
+export default interface StrokeTracker {
   /**
    * Adds stroke to the tracker
    * @return true if stroke successfully added to tracker, otherwise false

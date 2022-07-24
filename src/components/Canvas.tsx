@@ -131,17 +131,13 @@ const Canvas = (props: {}) => {
 
       lastX = x
       lastY = y
-      const allStrokes = [...tile.getStrokes()] // makes a copy of strokes to manipulate
       const eraserSize = 5 // the "radius" to erase
 
-      for (let i = tile.numElements() - 1; i >= 0; i--) { // loops through each stroke in strokes
-        if (tile.getStroke(i).distanceTo(x, y) < eraserSize) {
-          console.log("erasing")
-            const toErase = tile.getStroke(i)
-            tile.removeStroke(toErase.getID())
-            redraw(tile.getStrokes(), 'erase')
-            break // only erases 1 stroke
-        }
+      const eraseCandidate = tile.getStrokeAt([x, y], eraserSize)
+      if (eraseCandidate !== null) {
+        console.log("erasing")
+        tile.removeStroke(eraseCandidate.getID())
+        redraw(Array.from(tile.getStrokesIterator()), 'erase')
       }
     }
     const endErase = () => {
