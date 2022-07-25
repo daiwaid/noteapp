@@ -23,48 +23,48 @@
   ************************/
 
   public addToPath = (x: number, y: number, pressure=0.5) => {
-    if (this.path.length === 0) {
-      this.setStart(x, y)
-    }
+    if (this.getLength() === 0) this.setStart(x, y)
+
+    const newPoint = {x: x, y: y, p: pressure}
     
-    // if (this.path.length >= 2) { // smoothes path
-    //   const {x0, y0, x1, y1} = this.getLastTwoPoints()
-    //   const {newX, newY} = Stroke.bezier(x0, y0, x1, y1, x, y)
-      
-    //   this.path[this.path.length-2] = newX
-    //   this.path[this.path.length-1] = newY
-    //   this.path.push(x, y)
+    if (this.getLength() >= 2) { // smoothes path
+      const {newX, newY} = Stroke.bezier(this.getCoord(-2), this.getCoord(-1), newPoint)
+      this.setCoord(-1, {x: newX, y: newY})
+    }
 
-    //   // if (redraw === null) return
-    //   // redraw([new Stroke([x0, y0, x1, y1, x, y])], 'erase')
-    //   // redraw([new Stroke([x0, y0, x, y, x, y])], 'draw')
-    // }
-
-    const {normX, normY} = this.normalize(x, y)
-    this.path.push({x: normX, y: normY, p: pressure})
+    // const {normX, normY} = this.normalize(x, y)
+    this.path.push(newPoint)
   }
 
   /** Returns the shortest distance from the stroke to the point (x, y) */
   public distanceTo = (x: number, y: number) => {
     let shortest = 9999999
     if (this.getLength() === 1) { // if only 1 point in stroke
-      const p = this.getCoord(0, this.start.x, this.start.y)
+      const p = this.getCoord(0)
       return Math.abs(p.x-x)+Math.abs(p.y-y)
     }
     for (let i = 0; i < this.getLength()-1; i++) {
-      const p0 = this.getCoord(i, this.start.x, this.start.y)
-      const p1 = this.getCoord(i+1, this.start.x, this.start.y)
+      const p0 = this.getCoord(i)
+      const p1 = this.getCoord(i+1)
       const newDist = Stroke.distance(x, y, p0.x, p0.y, p1.x, p1.y)
       shortest = shortest > newDist ? newDist : shortest
     }
     return shortest
   }
 
+  /** Applies a function to all points in the stroke. */
+  public map = (f: Function) => {
+    this.start = f(this.start)
+    for (let i = 0; i < this.getLength(); i++) {
+      this.path[i] = f(this.path[i])
+    }
+  }
+
   /** custom generator, takes in a offset coord and returns the offset {x, y} on each iteration */
   public* getCoords() {
     let index = 0
     while (index < this.getLength()) {
-      yield this.getCoord(index, this.start.x, this.start.y)
+      yield this.getCoord(index)
       index++
     }
   }
@@ -77,7 +77,9 @@
   ************************/
 
   /** returns a coord along the path at index, optionally pass in offsets to offset the normalized coord */
-  public getCoord = (index: number, offsetX=0, offsetY=0) => { 
+  public getCoord = (index: number, offsetX=0, offsetY=0) => {
+    if (index < 0) index = this.getLength() + index
+    if (this.path[index] === undefined) console.log(index)
     return {x: this.path[index].x + offsetX, y: this.path[index].y + offsetY} 
   }
   public getPath = () => this.path
@@ -94,17 +96,16 @@
     this.start = {x: startX, y: startY}
   }
 
+  /** Sets the x, y values for a point in the stroke. */
+  private setCoord = (index: number, coord: {x: number, y: number}) => {
+    if (index < 0) index = this.getLength() + index
+    this.path[index].x = coord.x
+    this.path[index].y = coord.y
+  }
+
    /** Normalizes a coord based on startX, startY values */
    private normalize = (x: number, y: number) => {
     return {normX: x-this.start.x, normY: y-this.start.y}
-  }
-
-  private smoothPath = () => {
-    for (let i = 2; i < this.getLength(); i++) {
-      const {x, y} = Stroke.bezier(this.path[i-2].x, this.path[i-2].y, this.path[i-1].x, this.path[i-1].y, this.path[i].x, this.path[i].y)
-      this.path[i-1].x = x
-      this.path[i-1].y = y
-    }
   }
 
   /** Returns the last two points stored, in order to smooth the curve. */
@@ -115,8 +116,8 @@
 
   /** Takes in 3 points, calculates the quadratic bezier curve and return the middle of the curve
    * (aka smoothes out the middle point) */
-  private static bezier = (x0: number, y0: number, x1: number, y1: number, x2: number, y2: number) => {
-    return {x : .5 ** 2 * x0 + 2 * .5 ** 2 * x1 + .5**2 * x2, y : .5 ** 2 * y0 + 2 * .5 ** 2 * y1 + .5 **2 * y2}
+  private static bezier = (p0: {x: number, y: number}, p1: {x: number, y: number}, p2: {x: number, y: number}) => {
+    return {newX : .5 ** 2 * p0.x + 2 * .5 ** 2 * p1.x + .5**2 * p2.x, newY : .5 ** 2 * p0.y + 2 * .5 ** 2 * p1.y + .5 **2 * p2.y}
   }
 
   /** Finds the distance between a point and a line formed by 2 points in 2D */

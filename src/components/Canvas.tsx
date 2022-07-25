@@ -12,10 +12,13 @@ class Canvas extends React.Component {
           Variables
   ************************/
 
-  // reference to canvas, in order to pull it after component renders
-  public canvasRef = React.createRef<HTMLCanvasElement>()
-  public canvas: any
-  public context: any
+  // reference to canvas layers, in order to pull it after component renders
+  // public uiCanvasRef = React.createRef<HTMLCanvasElement>()
+  public activeCanvasRef = React.createRef<HTMLCanvasElement>()
+  public contentCanvasRef = React.createRef<HTMLCanvasElement>()
+  // public backgroundCanvasRef = React.createRef<HTMLCanvasElement>()
+  public activeContext: any
+  public contentContext: any
 
   // stroke saves
   private currStroke = new Stroke()
@@ -31,6 +34,7 @@ class Canvas extends React.Component {
 
   // saved states for animations
   private animating = false
+  private animatingActive = false
   private backupTimestep = -1
   private dpr = 1
   private toOffset = {x: 0, y: 0}
@@ -39,77 +43,7 @@ class Canvas extends React.Component {
 
 
   /************************
-          Render
-  ************************/
-
-  /** "(re)draws" all strokes by only drawing the difference;
-   * type: either 'draw' or 'erase' */
-  private redraw = (strokes: Stroke[], type='erase') => {
-
-    if (strokes === undefined || strokes.length === 0) { // if no strokes then clear screen
-      this.context.clearRect(0, 0, this.canvas.width, this.canvas.height)
-      return
-    }
-    // sets to either only draw in the difference or remove the difference
-    if (type === 'draw') {
-      this.context.globalCompositeOperation = 'source-over'
-      this.context.clearRect(0, 0, this.canvas.width, this.canvas.height)
-    }
-    else if (type === 'erase') this.context.globalCompositeOperation = 'destination-in'
-    // this.context.clearRect(0, 0, this.canvas.width, this.canvas.height) // clears whole screen, for testing only
-
-    /** adds a stroke to be redrawn */
-    const addStroke = (stroke: Stroke) => {
-      const start = this.processCoord(stroke.getStart(), false) // processe the coord
-      this.context.moveTo(start.x, start.y)
-      this.context.arc(start.x, start.y, this.strokeWidth/10, 0, Math.PI*2) // draws a circle at the starting position
-      for (const coord of stroke.getCoords()) {
-        const zoomed = this.processCoord(coord, false) // processes the coord
-        // this.context.quadraticCurveTo(path[i*4], path[i*4+1], path[i*4+2], path[i*4+3])
-        this.context.lineTo(zoomed.x, zoomed.y)
-      }
-    }
-
-    // adds all strokes to be redrawn and then draws all at once
-    this.context.beginPath()
-    strokes.forEach(addStroke)
-    this.context.stroke()
-    this.context.globalCompositeOperation = 'source-over'
-  }
-
-  /** Re-renders the canvas repeatedly until no more changes are detected. */
-  private rerender = () => {
-    let prevTimeStamp = -1
-    let frame = 0
-
-    // renders 1 frame
-    const animate = (timeStamp: DOMHighResTimeStamp) => {
-      this.animating = true // starts animating
-      let doneChanging = true
-
-      // gets the timestep since last frame
-      if (prevTimeStamp === -1) prevTimeStamp = timeStamp
-      let timestep = timeStamp - prevTimeStamp
-      if (timestep === 0) timestep = this.backupTimestep
-      else if (this.backupTimestep === 0) this.backupTimestep = timestep
-      prevTimeStamp = timeStamp
-
-      // checks page movement and zoom
-      const animateChange = this.animateMove(timestep)
-      const zoomChange = this.animateZoom(timestep)
-      doneChanging = animateChange && zoomChange
-
-      this.redraw(this.tile.getStrokes(), 'draw')
-      if (!doneChanging) window.requestAnimationFrame(animate)
-      else this.animating = false // stops animating
-      frame++
-    }
-    window.requestAnimationFrame(animate)
-  }
-
-
-  /************************
-          Draw
+            Draw
   ************************/
 
   private strokeWidth = 2
@@ -117,36 +51,27 @@ class Canvas extends React.Component {
   // when LMB is pressed, begins a new path and move it to the mouse's position
   private startDraw = (pointerEvent: PointerEvent) => {
     this.isDrawing = true
-    const [x, y] = [pointerEvent.offsetX, pointerEvent.offsetY] // gets current mouse position
-
-    this.context.beginPath()
-    this.context.moveTo(x, y)
-    this.context.arc(x, y, this.strokeWidth/10, 0, Math.PI*2) // draws a circle at the starting position
-    this.context.stroke() // actually draws it
-    const coord = this.processCoord({x: x, y: y})
-    console.log(coord)
-    this.currStroke.addToPath(coord.x, coord.y) // adds x, y to currStroke
-    
-    // console.log(currStroke)
+    this.draw(pointerEvent)
   }
   // when mouse is moving while LMB is pressed, will draw a line from last mouse position to current mouse position
   private draw = (pointerEvent: PointerEvent) => {
     if (!this.isDrawing) return
     const [x, y] = [pointerEvent.offsetX, pointerEvent.offsetY] // gets current mouse position
-    const coord = this.processCoord({x: x, y: y})
-    this.currStroke.addToPath(coord.x, coord.y)
-
+    
     // draws the line
-    this.context.lineTo(x, y)
-    this.context.stroke()
+    this.currStroke.addToPath(x, y)
+    this.rerenderActive()
   }
   // when LMB is lifted, will close current path and add the stroke to strokes and clear currStroke
   private endDraw = () => {
     this.isDrawing = false
     if (this.currStroke.isEmpty()) return
 
-    this.tile.addStroke(this.currStroke) // NEED TO CHANGE LATER
+    // converts stroke from absolute coords to relative coords and add to tile
+    this.currStroke.map(this.processCoord)
+    this.tile.addStroke(this.currStroke)
     this.currStroke = new Stroke()
+    this.rerender()
   }
 
 
@@ -210,8 +135,7 @@ class Canvas extends React.Component {
     if (this.isDrawing || this.isErasing) return // don't allow zoom while doing actions
     this.zoomCenterAbsolute = {x: wheelEvent.offsetX, y: wheelEvent.offsetY}
     this.zoomCenterRelative = this.processCoord({x: wheelEvent.offsetX, y: wheelEvent.offsetY})
-    if (this.scale < 80)
-    this.toScale += Math.ceil(this.toScale) * Math.sign(-wheelEvent.deltaY)/12
+    this.toScale += Math.ceil(this.toScale) * Math.sign(-wheelEvent.deltaY) / 12 // scales how much is zoomed
     console.log("zoom", this.toScale)
     if (this.toScale < 0.1) this.toScale = 0.1 // caps the zoom
     else if (this.toScale > 20) this.toScale = 20
@@ -221,17 +145,111 @@ class Canvas extends React.Component {
   /** Resizes the canavs, also reapplies default settings. */
   private resize = () => {
     this.dpr = window.devicePixelRatio * 2
-    this.context.canvas.width = window.innerWidth * this.dpr
-    this.context.canvas.height = window.innerHeight * this.dpr
-    this.canvas.style.width = `${window.innerWidth}px`
-    this.canvas.style.height = `${window.innerHeight}px`
+    for (const context of [this.activeContext, this.contentContext]) {
+      context.canvas.width = window.innerWidth * this.dpr
+      context.canvas.height = window.innerHeight * this.dpr
+      context.canvas.style.width = `${window.innerWidth}px`
+      context.canvas.style.height = `${window.innerHeight}px`
 
-    this.context.scale(this.dpr,this.dpr)
-    this.context.lineCap = 'round' // how the end of each line look
-    this.context.strokeStyle = 'black' // sets the color of the stroke
-    this.context.lineWidth = this.strokeWidth
-    this.context.lineJoin = 'round' // how lines are joined
+      context.scale(this.dpr,this.dpr)
+      context.lineCap = 'round' // how the end of each line look
+      context.strokeStyle = 'black' // sets the color of the stroke
+      context.lineWidth = this.strokeWidth
+      context.lineJoin = 'round' // how lines are joined
+    }
     this.redraw(this.tile.getStrokes(), 'draw')
+  }
+
+
+  /************************
+           Render
+  ************************/
+
+  /** "(re)draws" all strokes for ONE canvas layer by only drawing the difference;
+   * type: either 'draw', 'erase', or 'refresh' */
+   private redraw = (strokes: Stroke[], type='refresh', context=this.contentContext) => {
+
+    if (strokes === undefined || strokes.length === 0) { // if no strokes then clear screen
+      Canvas.clearScreen(context)
+      return
+    }
+    // sets to either only draw in the difference or remove the difference
+    if (type === 'draw') context.globalCompositeOperation = 'source-out'
+    else if (type === 'erase') context.globalCompositeOperation = 'destination-in'
+    else {
+      context.globalCompositeOperation = 'source-over'
+      Canvas.clearScreen(context)
+    }
+
+    /** adds a stroke to be redrawn */
+    const addStroke = (stroke: Stroke) => {
+      const start = this.processCoord(stroke.getStart(), false) // processe the coord
+      context.moveTo(start.x, start.y)
+      context.arc(start.x, start.y, this.strokeWidth/10, 0, Math.PI*2) // draws a circle at the starting position
+      for (const coord of stroke.getCoords()) {
+        const zoomed = this.processCoord(coord, false) // processes the coord
+        // context.quadraticCurveTo(path[i*4], path[i*4+1], path[i*4+2], path[i*4+3])
+        context.lineTo(zoomed.x, zoomed.y)
+      }
+    }
+
+    // adds all strokes to be redrawn and then draws all at once
+    context.beginPath()
+    strokes.forEach(addStroke)
+    context.stroke()
+  }
+
+  /** Re-renders the content layer repeatedly until no more changes are detected. */
+  private rerender = () => {
+    let prevTimeStamp = -1
+
+    // renders 1 frame for content layer
+    const animate = (timeStamp: DOMHighResTimeStamp) => {
+      this.animating = true // starts animating
+      let doneChanging = true
+
+      // gets the timestep since last frame
+      if (prevTimeStamp === -1) prevTimeStamp = timeStamp
+      let timestep = timeStamp - prevTimeStamp
+      if (timestep === 0) timestep = this.backupTimestep
+      else if (this.backupTimestep === 0) this.backupTimestep = timestep
+      prevTimeStamp = timeStamp
+
+      // checks page movement and zoom
+      const animateChange = this.animateMove(timestep)
+      const zoomChange = this.animateZoom(timestep)
+      doneChanging = animateChange && zoomChange
+
+      this.redraw(this.tile.getStrokes(), 'refresh')
+      if (!doneChanging) window.requestAnimationFrame(animate)
+      else this.animating = false // stops animating
+    }
+    window.requestAnimationFrame(animate)
+  }
+
+  /** Re-renders the active layer. All coords in active layer should be absolute. */
+  private rerenderActive = () => {
+    const animate = (timeStamp: DOMHighResTimeStamp) => {
+
+      /** redraws this.currStroke. */
+      const absRedraw = () => {
+        Canvas.clearScreen(this.activeContext)
+        if (this.currStroke.getLength() === 0) return // if stroke is empty return
+
+        this.activeContext.beginPath()
+        const start = this.currStroke.getStart()
+        this.activeContext.moveTo(start.x, start.y)
+        this.activeContext.arc(start.x, start.y, this.strokeWidth/10, 0, Math.PI*2) // draws a circle at the starting position
+        for (const coord of this.currStroke.getCoords()) {
+          this.activeContext.lineTo(coord.x, coord.y)
+        }
+        this.activeContext.stroke()
+      }
+
+      absRedraw()
+      if (this.isDrawing) window.requestAnimationFrame(animate)
+    }
+    window.requestAnimationFrame(animate)
   }
 
 
@@ -274,7 +292,6 @@ class Canvas extends React.Component {
       const newX = (coord.x-this.offset.x) * this.scale
       const newY = (coord.y-this.offset.y) * this.scale
       return {x: newX, y: newY}
-
     }
   }
 
@@ -298,7 +315,11 @@ class Canvas extends React.Component {
     if (Math.abs(x1 - x0) < cutoff) return x1
     // console.log(x1-x0)
     return x0 + Math.sign(x1-x0) * ((Math.abs(x1-x0)+300)**2 / 2**13 - 10.5) * timestep/8
+  }
 
+  /** Clears a canvas layer. */
+  private static clearScreen = (context: any) => {
+    context.clearRect(0, 0, context.canvas.width, context.canvas.height)
   }
 
   
@@ -339,41 +360,43 @@ class Canvas extends React.Component {
   ************************/
 
   componentDidMount() {
-    // gets canvas and its context
-    this.canvas = this.canvasRef.current
-    this.context = this.canvas.getContext('2d')
+    // gets canvas layers' contexts
+    this.activeContext = this.activeCanvasRef.current.getContext('2d')
+    this.contentContext = this.contentCanvasRef.current.getContext('2d')
 
     this.resize()
 
-    // adds window resize listener
+    // adds event listeners
     window.addEventListener('resize', this.resize)
     window.addEventListener('wheel', this.wheel, {passive: false})
   }
 
   shouldComponentUpdate(nextProps: Readonly<{}>, nextState: Readonly<{}>, nextContext: any): boolean {
-    return false
+    return false // makes sure component never updates
   }
 
   render() {
-    const meta = {
+    const meta = { // some HTML tags
       title: "NoteApp",
       meta: {
+        // disables zoom on mobile
         viewport: "width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=0"
       }
     }
     return (
-      <div>
+      <div
+        onPointerDown={this.pointerDown} 
+        onPointerUp={this.pointerUp} 
+        onPointerMove={this.pointerMove}
+        onPointerLeave={this.pointerUp}
+        onKeyDown={this.keyDown}
+        onContextMenu={(e) => e.preventDefault()}
+        tabIndex={0}>
+
         <DocumentMeta {...meta} />
-        <canvas 
-          onPointerDown={this.pointerDown} 
-          onPointerUp={this.pointerUp} 
-          onPointerMove={this.pointerMove}
-          onPointerLeave={this.pointerUp}
-          onKeyDown={this.keyDown}
-          onContextMenu={(e) => e.preventDefault()}
-          tabIndex={0}
-          ref={this.canvasRef}
-        />
+
+        <canvas id='active' ref={this.activeCanvasRef} style={{zIndex: 3}} />
+        <canvas id='content' ref={this.contentCanvasRef} style={{zIndex: 2}} />
       </div>
     )
   }
