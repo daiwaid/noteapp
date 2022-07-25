@@ -1,4 +1,5 @@
 import React from 'react'
+import DocumentMeta from 'react-document-meta'
 import Stroke from './Stroke'
 import Tile from './Tile'
 
@@ -18,21 +19,23 @@ class Canvas extends React.Component {
 
   // stroke saves
   private currStroke = new Stroke()
-  private roughStroke: number[] = []
   private tile = new Tile(0, 0)
 
   // active states
-  private activeButton = -1 // which button is the last pressed
   private isDrawing = false
   private isErasing = false
   private offset = {x: 0, y: 0} // the offset of the canvas
+  private zoomCenterAbsolute = {x: 0, y: 0}
+  private zoomCenterRelative = {x: 0, y: 0}
   private scale = 1
 
   // saved states for animations
   private animating = false
   private backupTimestep = -1
+  private dpr = 1
   private toOffset = {x: 0, y: 0}
   private toScale = this.scale
+  
 
 
   /************************
@@ -57,11 +60,13 @@ class Canvas extends React.Component {
 
     /** adds a stroke to be redrawn */
     const addStroke = (stroke: Stroke) => {
-      this.context.moveTo(stroke.getStartX(this.offset.x), stroke.getStartY(this.offset.y))
-      this.context.arc(stroke.getStartX(this.offset.x), stroke.getStartY(this.offset.y), this.strokeWidth/10, 0, Math.PI*2) // draws a circle at the starting position
-      for (const coord of stroke.getCoords(this.offset.x, this.offset.y)) {
+      const start = this.processCoord(stroke.getStart(), false) // processe the coord
+      this.context.moveTo(start.x, start.y)
+      this.context.arc(start.x, start.y, this.strokeWidth/10, 0, Math.PI*2) // draws a circle at the starting position
+      for (const coord of stroke.getCoords()) {
+        const zoomed = this.processCoord(coord, false) // processes the coord
         // this.context.quadraticCurveTo(path[i*4], path[i*4+1], path[i*4+2], path[i*4+3])
-        this.context.lineTo(coord.x, coord.y)
+        this.context.lineTo(zoomed.x, zoomed.y)
       }
     }
 
@@ -89,17 +94,10 @@ class Canvas extends React.Component {
       else if (this.backupTimestep === 0) this.backupTimestep = timestep
       prevTimeStamp = timeStamp
 
-      // checks page movement
-      if (this.toOffset.x !== this.offset.x) {
-        this.offset.x = Canvas.smoothTransition(this.offset.x, this.toOffset.x, timestep)
-        if (this.toOffset.x !== this.offset.x) doneChanging = false
-      }
-      if (this.toOffset.y !== this.offset.y) {
-        const aa=Canvas.smoothTransition(this.offset.y, this.toOffset.y, timestep)
-        console.log("ntm:", this.toOffset.y-this.offset.y, ", moved:", aa-this.offset.y, ", frame:", frame, ", timestep:", timestep)
-        this.offset.y = aa
-        if (this.toOffset.y !== this.offset.y) doneChanging = false
-      }
+      // checks page movement and zoom
+      const animateChange = this.animateMove(timestep)
+      const zoomChange = this.animateZoom(timestep)
+      doneChanging = animateChange && zoomChange
 
       this.redraw(this.tile.getStrokes(), 'draw')
       if (!doneChanging) window.requestAnimationFrame(animate)
@@ -125,17 +123,18 @@ class Canvas extends React.Component {
     this.context.moveTo(x, y)
     this.context.arc(x, y, this.strokeWidth/10, 0, Math.PI*2) // draws a circle at the starting position
     this.context.stroke() // actually draws it
-    this.currStroke.addToPath(x-this.offset.x, y-this.offset.y) // adds x, y to currStroke
-    this.roughStroke.push(x-this.offset.x, y-this.offset.y)
+    const coord = this.processCoord({x: x, y: y})
+    console.log(coord)
+    this.currStroke.addToPath(coord.x, coord.y) // adds x, y to currStroke
+    
     // console.log(currStroke)
   }
   // when mouse is moving while LMB is pressed, will draw a line from last mouse position to current mouse position
   private draw = (pointerEvent: PointerEvent) => {
     if (!this.isDrawing) return
     const [x, y] = [pointerEvent.offsetX, pointerEvent.offsetY] // gets current mouse position
-    this.roughStroke.push(x-this.offset.x, y-this.offset.y) // adds x, y to currStroke
-    if (this.currStroke.addToPath(x-this.offset.x, y-this.offset.y))
-
+    const coord = this.processCoord({x: x, y: y})
+    this.currStroke.addToPath(coord.x, coord.y)
 
     // draws the line
     this.context.lineTo(x, y)
@@ -147,9 +146,7 @@ class Canvas extends React.Component {
     if (this.currStroke.isEmpty()) return
 
     this.tile.addStroke(this.currStroke) // NEED TO CHANGE LATER
-    // redraw(tile.getStrokes(), 'erase')
     this.currStroke = new Stroke()
-    // console.log("mouse lifted \n", currStroke)
   }
 
 
@@ -158,13 +155,13 @@ class Canvas extends React.Component {
   ************************/
 
   // keeps track of the last mouse position
-  private lastX = 0
-  private lastY = 0
+  private lastCoord = {x: 0, y: 0}
 
   private startErase = (pointerEvent: PointerEvent) => {
     this.isErasing = true
     if (this.isDrawing) this.endDraw()
     this.erase(pointerEvent)
+    console.log(this.offset)
   }
   // loops through all arrays in strokes and remove any stroke close to the mouse
   // when mouse is moving and RMB is pressed
@@ -172,15 +169,16 @@ class Canvas extends React.Component {
     if (!this.isErasing) return
     
     const [x, y] = [pointerEvent.offsetX, pointerEvent.offsetY] // gets current mouse position
-    if (Canvas.withinSquare(x-this.offset.x, y-this.offset.y, this.lastX-this.offset.x, this.lastY-this.offset.y, 5)) return // if mouse didn't move much then we won't recheck
+    const lastCoordNoOffset = this.processCoord(this.lastCoord)
+    if (Canvas.withinSquare(x, y, lastCoordNoOffset.x, lastCoordNoOffset.y, this.dpr*4)) return // if mouse didn't move much then we won't recheck
     if (this.tile.isEmpty()) return
 
-    this.lastX = x
-    this.lastY = y
+    this.lastCoord = {x: x, y: y}
     const eraserSize = 5 // the "radius" to erase
 
     for (let i = this.tile.numElements() - 1; i >= 0; i--) { // loops through each stroke in strokes
-      if (this.tile.getStroke(i).distanceTo(x-this.offset.x, y-this.offset.y) < eraserSize) {
+      const mouseCoord = this.processCoord({x: x, y: y})
+      if (this.tile.getStroke(i).distanceTo(mouseCoord.x, mouseCoord.y) < eraserSize) {
         console.log("erased")
         const toErase = this.tile.getStroke(i)
         this.tile.removeStroke(toErase.getID())
@@ -195,29 +193,40 @@ class Canvas extends React.Component {
 
 
   /************************
-          Other
+       Other Functions
   ************************/
+
   private scroll = (wheelEvent: WheelEvent) => {
-    if (this.isDrawing || this.isDrawing) return // don't allow scroll while doing actions
-    if (wheelEvent.shiftKey) this.toOffset.x -= wheelEvent.deltaY
+    if (this.isDrawing || this.isErasing) return // don't allow scroll while doing actions
+    if (wheelEvent.shiftKey) this.toOffset.x += wheelEvent.deltaY / this.scale // shift+scroll allows horizontal scroll
     else {
-      this.toOffset.x += wheelEvent.deltaX
-      this.toOffset.y -= wheelEvent.deltaY
+      this.toOffset.x += wheelEvent.deltaX / this.scale
+      this.toOffset.y += wheelEvent.deltaY / this.scale
     }
     if (!this.animating) this.rerender()
   }
-  private zoom = (wheelEvent: WheelEvent) => {
 
+  private zoom = (wheelEvent: WheelEvent) => {
+    if (this.isDrawing || this.isErasing) return // don't allow zoom while doing actions
+    this.zoomCenterAbsolute = {x: wheelEvent.offsetX, y: wheelEvent.offsetY}
+    this.zoomCenterRelative = this.processCoord({x: wheelEvent.offsetX, y: wheelEvent.offsetY})
+    if (this.scale < 80)
+    this.toScale += Math.ceil(this.toScale) * Math.sign(-wheelEvent.deltaY)/12
+    console.log("zoom", this.toScale)
+    if (this.toScale < 0.1) this.toScale = 0.1 // caps the zoom
+    else if (this.toScale > 20) this.toScale = 20
+    if (!this.animating) this.rerender()
   }
+
   /** Resizes the canavs, also reapplies default settings. */
   private resize = () => {
-    const dpr = window.devicePixelRatio * 2
-    this.context.canvas.width = window.innerWidth * dpr
-    this.context.canvas.height = window.innerHeight * dpr
+    this.dpr = window.devicePixelRatio * 2
+    this.context.canvas.width = window.innerWidth * this.dpr
+    this.context.canvas.height = window.innerHeight * this.dpr
     this.canvas.style.width = `${window.innerWidth}px`
     this.canvas.style.height = `${window.innerHeight}px`
 
-    this.context.scale(dpr,dpr)
+    this.context.scale(this.dpr,this.dpr)
     this.context.lineCap = 'round' // how the end of each line look
     this.context.strokeStyle = 'black' // sets the color of the stroke
     this.context.lineWidth = this.strokeWidth
@@ -230,7 +239,46 @@ class Canvas extends React.Component {
       Helper Functions
   ************************/
 
-  // returns the tile the pointer is currently in, returns null if pointer not in any tile
+  /** Generates the page offset for 1 animation frame. */
+  private animateMove= (timestep: number) => {
+    let doneChanging = true
+    if (this.toOffset.x !== this.offset.x) {
+      doneChanging = false
+      this.offset.x = Canvas.smoothTransition(this.offset.x, this.toOffset.x, timestep)
+    }
+    if (this.toOffset.y !== this.offset.y) {
+      doneChanging = false
+      this.offset.y = Canvas.smoothTransition(this.offset.y, this.toOffset.y, timestep)
+    }
+    return doneChanging
+  }
+
+  private animateZoom = (timestep: number) => { // pure dark magic don't question it
+    if (this.toScale === this.scale) return true
+
+    this.scale += Canvas.smoothTransition(0, (this.toScale-this.scale)*256, timestep) / 256
+    this.offset.x = this.toOffset.x = this.zoomCenterRelative.x - this.zoomCenterAbsolute.x / this.scale
+    this.offset.y = this.toOffset.y = this.zoomCenterRelative.y - this.zoomCenterAbsolute.y / this.scale
+    return false
+  }
+
+  /** Converts on screen (absolute) coord to page (relative) coord, or vice versa. */
+  private processCoord = (coord: {x: number, y: number}, toRelative=true) => {
+    if (toRelative) {
+      const newX = coord.x / this.scale + this.offset.x
+      const newY = coord.y / this.scale + this.offset.y
+      return {x: newX, y: newY}
+    }
+    else {
+      //zoom from offset
+      const newX = (coord.x-this.offset.x) * this.scale
+      const newY = (coord.y-this.offset.y) * this.scale
+      return {x: newX, y: newY}
+
+    }
+  }
+
+  /** Returns the tile the pointer is currently in, returns null if pointer not in any tile. */
   private static getTile = (tiles: Tile[], x: number, y: number) => {
   for (const tile of tiles) {
     if (tile.enclosesVertex(x, y))
@@ -239,16 +287,18 @@ class Canvas extends React.Component {
     return null
   }
 
-  // returns if 2 coords are within a 'length' of each other
-  private static withinSquare = (x1: number, y1: number, x2: number, y2: number, length: number) => {
-    return Math.abs(x1-x2) <= length && Math.abs(y1-y2) <= length
+  /** Returns whether 2 coords are within a 'length' of each other */
+  private static withinSquare = (x0: number, y0: number, x1: number, y1: number, length: number) => {
+    return Math.abs(x0-x1) <= length && Math.abs(y0-y1) <= length
   }
 
-  // smoothly transitions from x0 to x1, returns what x0 should become in the next time step
+  /** Smoothly transitions from x0 to x1, returns what x0 should become in the next time step. */
   private static smoothTransition = (x0: number, x1: number, timestep: number) => {
     const cutoff = 0.5
     if (Math.abs(x1 - x0) < cutoff) return x1
+    // console.log(x1-x0)
     return x0 + Math.sign(x1-x0) * ((Math.abs(x1-x0)+300)**2 / 2**13 - 10.5) * timestep/8
+
   }
 
   
@@ -270,9 +320,17 @@ class Canvas extends React.Component {
     this.draw(nativeEvent)
     this.erase(nativeEvent)
   }
-  private wheel = ({nativeEvent}: {nativeEvent: WheelEvent}) => {
-    if (nativeEvent.ctrlKey) this.zoom(nativeEvent)
-    else this.scroll(nativeEvent)
+  private wheel = (event: any) => {
+    if (event.ctrlKey) {
+      event.preventDefault()
+      this.zoom(event)
+    }
+    else this.scroll(event)
+  }
+  private keyDown = ({nativeEvent}: {nativeEvent: KeyboardEvent}) => {
+    if (nativeEvent.ctrlKey) {
+      nativeEvent.preventDefault()
+    }
   }
   
 
@@ -289,6 +347,7 @@ class Canvas extends React.Component {
 
     // adds window resize listener
     window.addEventListener('resize', this.resize)
+    window.addEventListener('wheel', this.wheel, {passive: false})
   }
 
   shouldComponentUpdate(nextProps: Readonly<{}>, nextState: Readonly<{}>, nextContext: any): boolean {
@@ -296,17 +355,26 @@ class Canvas extends React.Component {
   }
 
   render() {
+    const meta = {
+      title: "NoteApp",
+      meta: {
+        viewport: "width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=0"
+      }
+    }
     return (
-      <canvas 
-        onPointerDown={this.pointerDown} 
-        onPointerUp={this.pointerUp} 
-        onPointerMove={this.pointerMove}
-        onPointerLeave={this.pointerUp}
-        onWheel={this.wheel}
-        onContextMenu={(e) => e.preventDefault()}
-
-        ref={this.canvasRef}
-      />
+      <div>
+        <DocumentMeta {...meta} />
+        <canvas 
+          onPointerDown={this.pointerDown} 
+          onPointerUp={this.pointerUp} 
+          onPointerMove={this.pointerMove}
+          onPointerLeave={this.pointerUp}
+          onKeyDown={this.keyDown}
+          onContextMenu={(e) => e.preventDefault()}
+          tabIndex={0}
+          ref={this.canvasRef}
+        />
+      </div>
     )
   }
 }

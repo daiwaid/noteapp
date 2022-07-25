@@ -42,12 +42,15 @@
 
     const {normX, normY} = this.normalize(x, y)
     this.path.push({x: normX, y: normY, p: pressure})
-    return true
   }
 
   /** Returns the shortest distance from the stroke to the point (x, y) */
   public distanceTo = (x: number, y: number) => {
     let shortest = 9999999
+    if (this.getLength() === 1) { // if only 1 point in stroke
+      const p = this.getCoord(0, this.start.x, this.start.y)
+      return Math.abs(p.x-x)+Math.abs(p.y-y)
+    }
     for (let i = 0; i < this.getLength()-1; i++) {
       const p0 = this.getCoord(i, this.start.x, this.start.y)
       const p1 = this.getCoord(i+1, this.start.x, this.start.y)
@@ -58,10 +61,10 @@
   }
 
   /** custom generator, takes in a offset coord and returns the offset {x, y} on each iteration */
-  public* getCoords(offsetX: number, offsetY: number) {
+  public* getCoords() {
     let index = 0
     while (index < this.getLength()) {
-      yield this.getCoord(index, this.start.x+offsetX, this.start.y+offsetY)
+      yield this.getCoord(index, this.start.x, this.start.y)
       index++
     }
   }
@@ -80,8 +83,7 @@
   public getPath = () => this.path
   public getID = () => this.id
   public getLength = () => this.path.length
-  public getStartX = (offset=0) => this.start.x+offset
-  public getStartY = (offset=0) => this.start.y+offset
+  public getStart = () => this.start
 
 
   /************************
@@ -90,6 +92,11 @@
 
   private setStart = (startX: number, startY: number) => {
     this.start = {x: startX, y: startY}
+  }
+
+   /** Normalizes a coord based on startX, startY values */
+   private normalize = (x: number, y: number) => {
+    return {normX: x-this.start.x, normY: y-this.start.y}
   }
 
   private smoothPath = () => {
@@ -104,11 +111,6 @@
   private getLastTwoPoints = () => {
     const l = this.path.length
     return {x0: this.path[l-4], y0: this.path[l-3], x1: this.path[l-2], y1: this.path[l-1]}
-  }
-
-  /** Normalizes a coord based on startX, startY values */
-  private normalize = (x: number, y: number) => {
-    return {normX: x-this.start.x, normY: y-this.start.y}
   }
 
   /** Takes in 3 points, calculates the quadratic bezier curve and return the middle of the curve
