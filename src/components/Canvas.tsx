@@ -22,23 +22,26 @@ class Canvas extends React.Component {
 
   // stroke saves
   private currStroke = new Stroke()
-  private tile = new Tile(0, 0)
+  private tile = new Tile(0, 0) // [relative]
 
   // active states
   private isDrawing = false
   private isErasing = false
-  private offset = {x: 0, y: 0} // the offset of the canvas
-  private zoomCenterAbsolute = {x: 0, y: 0}
-  private zoomCenterRelative = {x: 0, y: 0}
+  private offset = {x: 0, y: 0} // the offset of the canvas [relative]
   private scale = 1
+  private contentOffset = {x: 0, y: 0} // the default CSS offset [absolute]
 
   // saved states for animations
   private animating = false
-  private animatingActive = false
   private backupTimestep = -1
   private dpr = 1
-  private toOffset = {x: 0, y: 0}
+  private toOffset = {x: 0, y: 0} // how much more to offset [content absolute]
+  private cssOffset = {x: 0, y: 0} // how much CSS is offset from content offset [absolute]
   private toScale = this.scale
+  private zoomCenterAbs = {x: 0, y: 0} // where to zoom from [content absolute]
+  private zoomCenterRel = {x: 0, y: 0} // [relative]
+  private cssZoom = 1 // how much CSS is zoomed
+  private isZooming = false
   
 
 
@@ -67,11 +70,11 @@ class Canvas extends React.Component {
     this.isDrawing = false
     if (this.currStroke.isEmpty()) return
 
-    // converts stroke from absolute coords to relative coords and add to tile
-    this.currStroke.map(this.processCoord)
+    // converts stroke coords from screen absolute to relative and add to tile
+    this.currStroke.map((c: any) => this.processCoord(c, 0, 2))
     this.tile.addStroke(this.currStroke)
     this.currStroke = new Stroke()
-    this.rerender()
+    this.redraw(this.tile.getStrokes(), 'draw')
   }
 
 
@@ -93,7 +96,7 @@ class Canvas extends React.Component {
     if (!this.isErasing) return
     
     const [x, y] = [pointerEvent.offsetX, pointerEvent.offsetY] // gets current mouse position
-    const lastCoordNoOffset = this.processCoord(this.lastCoord)
+    const lastCoordNoOffset = this.processCoord(this.lastCoord, 0, 2)
     if (Canvas.withinSquare(x, y, lastCoordNoOffset.x, lastCoordNoOffset.y, this.dpr*4)) return // if mouse didn't move much then we won't recheck
     if (this.tile.isEmpty()) return
 
@@ -101,9 +104,8 @@ class Canvas extends React.Component {
     const eraserSize = 5 // the "radius" to erase
 
     for (let i = this.tile.numElements() - 1; i >= 0; i--) { // loops through each stroke in strokes
-      const mouseCoord = this.processCoord({x: x, y: y})
+      const mouseCoord = this.processCoord({x: x, y: y}, 0, 2)
       if (this.tile.getStroke(i).distanceTo(mouseCoord.x, mouseCoord.y) < eraserSize) {
-        console.log("erased")
         const toErase = this.tile.getStroke(i)
         this.tile.removeStroke(toErase.getID())
         this.redraw(this.tile.getStrokes(), 'erase')
@@ -122,34 +124,54 @@ class Canvas extends React.Component {
 
   private scroll = (wheelEvent: WheelEvent) => {
     if (this.isDrawing || this.isErasing) return // don't allow scroll while doing actions
-    if (wheelEvent.shiftKey) this.toOffset.x += wheelEvent.deltaY / this.scale // shift+scroll allows horizontal scroll
+    if (wheelEvent.shiftKey) this.toOffset.x += -wheelEvent.deltaY // shift+scroll allows horizontal scroll
     else {
-      this.toOffset.x += wheelEvent.deltaX / this.scale
-      this.toOffset.y += wheelEvent.deltaY / this.scale
+      this.toOffset.x += wheelEvent.deltaX
+      this.toOffset.y += -wheelEvent.deltaY
     }
     if (!this.animating) this.rerender()
   }
 
   private zoom = (wheelEvent: WheelEvent) => {
     if (this.isDrawing || this.isErasing) return // don't allow zoom while doing actions
-    this.zoomCenterAbsolute = {x: wheelEvent.offsetX, y: wheelEvent.offsetY}
-    this.zoomCenterRelative = this.processCoord({x: wheelEvent.offsetX, y: wheelEvent.offsetY})
+    const newOffset = {x: this.offset.x, y: this.offset.y}
+    if (this.isZooming) {
+      newOffset.x = this.zoomCenterRel.x - this.zoomCenterAbs.x / this.scale
+      newOffset.y = this.zoomCenterRel.y - this.zoomCenterAbs.y / this.scale
+    }
+    // calculate zoomCenter
+    this.zoomCenterAbs = this.processCoord({x: wheelEvent.offsetX, y: wheelEvent.offsetY}, 0, 1)
+    this.zoomCenterRel = this.processCoord(this.zoomCenterAbs, 1, 2, newOffset)
     this.toScale += Math.ceil(this.toScale) * Math.sign(-wheelEvent.deltaY) / 12 // scales how much is zoomed
     console.log("zoom", this.toScale)
-    if (this.toScale < 0.1) this.toScale = 0.1 // caps the zoom
+    // caps the zoom
+    if (this.toScale < 0.1) this.toScale = 0.1 
     else if (this.toScale > 20) this.toScale = 20
+    // updates offset here so next zoom event will have correct zoomCenter coords
+    
+
+    this.isZooming = true
     if (!this.animating) this.rerender()
   }
 
   /** Resizes the canavs, also reapplies default settings. */
-  private resize = () => {
+  private resize = () => { // TODO when resize shift content so center is preserved
     this.dpr = window.devicePixelRatio * 2
-    for (const context of [this.activeContext, this.contentContext]) {
-      context.canvas.width = window.innerWidth * this.dpr
-      context.canvas.height = window.innerHeight * this.dpr
-      context.canvas.style.width = `${window.innerWidth}px`
-      context.canvas.style.height = `${window.innerHeight}px`
+    // activeContext
+    this.activeContext.canvas.width = window.innerWidth * this.dpr
+    this.activeContext.canvas.height = window.innerHeight * this.dpr
+    this.activeContext.canvas.style.width = `${window.innerWidth}px`
+    this.activeContext.canvas.style.height = `${window.innerHeight}px`
 
+    this.contentContext.canvas.width = window.innerWidth * this.dpr * 2
+    this.contentContext.canvas.height = window.innerHeight * this.dpr * 2
+    this.contentContext.canvas.style.width = `${window.innerWidth * 2}px`
+    this.contentContext.canvas.style.height = `${window.innerHeight * 2}px`
+    this.contentOffset = {x: -window.innerWidth/2, y: -window.innerHeight/2}
+    this.contentContext.canvas.style.left = `${this.contentOffset.x}px`
+    this.contentContext.canvas.style.top = `${this.contentOffset.y}px`
+
+    for (const context of [this.activeContext, this.contentContext]) {
       context.scale(this.dpr,this.dpr)
       context.lineCap = 'round' // how the end of each line look
       context.strokeStyle = 'black' // sets the color of the stroke
@@ -173,7 +195,7 @@ class Canvas extends React.Component {
       return
     }
     // sets to either only draw in the difference or remove the difference
-    if (type === 'draw') context.globalCompositeOperation = 'source-out'
+    if (type === 'draw') context.globalCompositeOperation = 'source-over'
     else if (type === 'erase') context.globalCompositeOperation = 'destination-in'
     else {
       context.globalCompositeOperation = 'source-over'
@@ -183,11 +205,11 @@ class Canvas extends React.Component {
 
     /** adds a stroke to be redrawn */
     const addStroke = (stroke: Stroke) => {
-      const start = this.processCoord(stroke.getStart(), false) // processe the coord
+      const start = this.processCoord(stroke.getStart(), 2, 1) // processe the coord
       context.moveTo(start.x, start.y)
       context.arc(start.x, start.y, this.strokeWidth/10, 0, Math.PI*2) // draws a circle at the starting position
       for (const coord of stroke.getCoords()) {
-        const zoomed = this.processCoord(coord, false) // processes the coord
+        const zoomed = this.processCoord(coord, 2, 1) // processes the coord
         // context.quadraticCurveTo(path[i*4], path[i*4+1], path[i*4+2], path[i*4+3])
         context.lineTo(zoomed.x, zoomed.y)
       }
@@ -216,11 +238,11 @@ class Canvas extends React.Component {
       prevTimeStamp = timeStamp
 
       // checks page movement and zoom
-      const animateChange = this.animateMove(timestep)
-      const zoomChange = this.animateZoom(timestep)
-      doneChanging = animateChange && zoomChange
+      const move = this.animateMove(timestep)
+      const zoom = this.animateZoom(timestep)
+      doneChanging = move.done && zoom.done
 
-      this.redraw(this.tile.getStrokes(), 'refresh')
+      if (move.render || zoom.render) this.redraw(this.tile.getStrokes(), 'refresh')
       if (!doneChanging) window.requestAnimationFrame(animate)
       else this.animating = false // stops animating
     }
@@ -261,43 +283,105 @@ class Canvas extends React.Component {
       Helper Functions
   ************************/
 
-  /** Generates the page offset for 1 animation frame. */
-  private animateMove= (timestep: number) => {
-    // console.log(timestep)
+  /** Moves the page for 1 frame. */
+  private animateMove = (timestep: number) => {
     let doneChanging = true
-    if (this.toOffset.x !== this.offset.x) {
-      doneChanging = false
-      this.offset.x = Canvas.smoothTransition(this.offset.x, this.toOffset.x, timestep)
+    let needRender = false
+
+    const cssMove = () => { // moves through CSS
+      this.contentContext.canvas.style.left = `${this.contentOffset.x+this.cssOffset.x}px`
+      this.contentContext.canvas.style.top = `${this.contentOffset.y+this.cssOffset.y}px`
     }
-    if (this.toOffset.y !== this.offset.y) {
-      doneChanging = false
-      this.offset.y = Canvas.smoothTransition(this.offset.y, this.toOffset.y, timestep)
+    const cssResetPos = () => { // resets CSS position and need to render
+      needRender = true
+      this.offset.x -= this.cssOffset.x / this.scale
+      this.cssOffset.x = 0
+      this.contentContext.canvas.style.left = `${this.contentOffset.x}px`
+      this.offset.y -= this.cssOffset.y / this.scale
+      this.cssOffset.y = 0
+      this.contentContext.canvas.style.top = `${this.contentOffset.y}px`
     }
-    return doneChanging
+    
+    if (this.isZooming) return {done: true, render: false} // if zooming, don't scroll
+
+    if (this.toOffset.x !== 0) {
+      doneChanging = false
+      const move = Canvas.smoothTransition(0, this.toOffset.x, timestep)
+      this.toOffset.x -= move
+      this.cssOffset.x += move
+    }
+    if (this.toOffset.y !== 0) {
+      doneChanging = false
+      const move = Canvas.smoothTransition(0, this.toOffset.y, timestep)
+      this.toOffset.y -= move
+      this.cssOffset.y += move
+    }
+    if (Math.abs(this.cssOffset.x) > window.innerHeight/2 || Math.abs(this.cssOffset.y) > window.innerHeight/2)
+      cssResetPos() // if scrolled too far, reset CSS offset
+    else cssMove()
+
+    if (doneChanging) cssResetPos()
+    return {done: doneChanging, render: needRender}
   }
 
-  private animateZoom = (timestep: number) => { // pure dark magic don't question it
-    if (this.toScale === this.scale) return true
+  /** Zooms the page for 1 frame. */
+  private animateZoom = (timestep: number) => {
+    let render = false
 
-    this.scale += Canvas.smoothTransition(0, (this.toScale-this.scale)*256, timestep) / 256
-    this.offset.x = this.toOffset.x = this.zoomCenterRelative.x - this.zoomCenterAbsolute.x / this.scale
-    this.offset.y = this.toOffset.y = this.zoomCenterRelative.y - this.zoomCenterAbsolute.y / this.scale
-    return false
+    const cssZoom = () => {
+      const centerX = this.zoomCenterAbs.x
+      const centerY = this.zoomCenterAbs.y
+      this.contentContext.canvas.style.transformOrigin = `${centerX}px ${centerY}px`
+      this.contentContext.canvas.style.transform = `scale(${this.cssZoom})`
+    }
+    const cssResetZoom = () => {
+      this.offset.x = this.zoomCenterRel.x - this.zoomCenterAbs.x / this.scale
+      this.offset.y = this.zoomCenterRel.y - this.zoomCenterAbs.y / this.scale
+      this.cssZoom = 1
+      this.contentContext.canvas.style.transform = `scale(${this.cssZoom})`
+      render = true
+    }
+
+    if (!this.isZooming) return {done: true, render: false} // return if not currently zooming
+    const zoom = Canvas.smoothTransition(0, (this.toScale-this.scale)*256, timestep) / 256
+    this.cssZoom *= (this.scale + zoom) / this.scale
+    this.scale += zoom
+    if (this.cssZoom > 1.5 || this.cssZoom < 0.75) { // prevent CSS from zooming too much
+      cssResetZoom()
+    }
+    else cssZoom()
+    
+    if (this.scale === this.toScale) { // finished
+      cssResetZoom()
+      this.isZooming = false
+      return {done: true, render: true}
+    }
+    return {done: false, render: render}
   }
 
-  /** Converts on screen (absolute) coord to page (relative) coord, or vice versa. */
-  private processCoord = (coord: {x: number, y: number}, toRelative=true) => {
-    if (toRelative) {
-      const newX = coord.x / this.scale + this.offset.x
-      const newY = coord.y / this.scale + this.offset.y
-      return {x: newX, y: newY}
+  /** Converts coords from one coordinate (system?) to another, returns a NEW coord object.
+   * 0: screen layer [absolute]; 1: content layer [absolute]; 2: strokes coords [relative]
+   */
+  private processCoord = (coord: {x: number, y: number}, from=1, to=2, offset=this.offset) => {
+    const newCoord = {x: coord.x, y: coord.y}
+    if (from === to) return newCoord // if same do nothing
+    if (from === 0) { // 0 -> 1
+      newCoord.x = newCoord.x - this.contentOffset.x
+      newCoord.y = newCoord.y - this.contentOffset.y
     }
-    else {
-      //zoom from offset
-      const newX = (coord.x-this.offset.x) * this.scale
-      const newY = (coord.y-this.offset.y) * this.scale
-      return  {x: newX, y: newY}
+    if (to === 2) { // to relative
+      newCoord.x = newCoord.x / this.scale + offset.x
+      newCoord.y = newCoord.y / this.scale + offset.y
     }
+    if (from === 2) { // from relative
+      newCoord.x = (newCoord.x - offset.x) * this.scale
+      newCoord.y = (newCoord.y - offset.y) * this.scale
+      if (to === 0) {
+        newCoord.x = newCoord.x + this.contentOffset.x
+        newCoord.y = newCoord.y + this.contentOffset.y
+      }
+    }
+    return newCoord
   }
 
   /** Returns the tile the pointer is currently in, returns null if pointer not in any tile. */
@@ -318,7 +402,6 @@ class Canvas extends React.Component {
   private static smoothTransition = (x0: number, x1: number, timestep: number) => {
     const cutoff = 0.5
     if (Math.abs(x1 - x0) < cutoff) return x1
-    // console.log(x1-x0)
     return x0 + Math.sign(x1-x0) * ((Math.abs(x1-x0)+300)**2 / 2**13 - 10.5) * timestep/8
   }
 
