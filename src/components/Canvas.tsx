@@ -52,6 +52,7 @@ class Canvas extends React.Component {
   private startDraw = (pointerEvent: PointerEvent) => {
     this.isDrawing = true
     this.draw(pointerEvent)
+    this.rerenderActive()
   }
   // when mouse is moving while LMB is pressed, will draw a line from last mouse position to current mouse position
   private draw = (pointerEvent: PointerEvent) => {
@@ -60,7 +61,6 @@ class Canvas extends React.Component {
     
     // draws the line
     this.currStroke.addToPath(x, y)
-    this.rerenderActive()
   }
   // when LMB is lifted, will close current path and add the stroke to strokes and clear currStroke
   private endDraw = () => {
@@ -86,7 +86,6 @@ class Canvas extends React.Component {
     this.isErasing = true
     if (this.isDrawing) this.endDraw()
     this.erase(pointerEvent)
-    console.log(this.offset)
   }
   // loops through all arrays in strokes and remove any stroke close to the mouse
   // when mouse is moving and RMB is pressed
@@ -179,6 +178,7 @@ class Canvas extends React.Component {
     else {
       context.globalCompositeOperation = 'source-over'
       Canvas.clearScreen(context)
+      console.log("refresh")
     }
 
     /** adds a stroke to be redrawn */
@@ -229,10 +229,13 @@ class Canvas extends React.Component {
 
   /** Re-renders the active layer. All coords in active layer should be absolute. */
   private rerenderActive = () => {
-    const animate = (timeStamp: DOMHighResTimeStamp) => {
+    let currLength = this.currStroke.getLength()
 
+    const animate = (timeStamp: DOMHighResTimeStamp) => {
+      
       /** redraws this.currStroke. */
       const absRedraw = () => {
+        if (currLength === this.currStroke.getLength()) return // only redraw if a new coord was added
         Canvas.clearScreen(this.activeContext)
         if (this.currStroke.getLength() === 0) return // if stroke is empty return
 
@@ -244,6 +247,7 @@ class Canvas extends React.Component {
           this.activeContext.lineTo(coord.x, coord.y)
         }
         this.activeContext.stroke()
+        currLength = this.currStroke.getLength()
       }
 
       absRedraw()
@@ -259,6 +263,7 @@ class Canvas extends React.Component {
 
   /** Generates the page offset for 1 animation frame. */
   private animateMove= (timestep: number) => {
+    // console.log(timestep)
     let doneChanging = true
     if (this.toOffset.x !== this.offset.x) {
       doneChanging = false
@@ -291,7 +296,7 @@ class Canvas extends React.Component {
       //zoom from offset
       const newX = (coord.x-this.offset.x) * this.scale
       const newY = (coord.y-this.offset.y) * this.scale
-      return {x: newX, y: newY}
+      return  {x: newX, y: newY}
     }
   }
 

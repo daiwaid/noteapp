@@ -54,9 +54,8 @@
 
   /** Applies a function to all points in the stroke. */
   public map = (f: Function) => {
-    this.start = f(this.start)
     for (let i = 0; i < this.getLength(); i++) {
-      this.path[i] = f(this.path[i])
+      this.setCoord(i, f(this.path[i]))
     }
   }
 
@@ -85,7 +84,7 @@
   public getPath = () => this.path
   public getID = () => this.id
   public getLength = () => this.path.length
-  public getStart = () => this.start
+  public getStart = () => this.path[0]
 
 
   /************************
@@ -106,12 +105,6 @@
    /** Normalizes a coord based on startX, startY values */
    private normalize = (x: number, y: number) => {
     return {normX: x-this.start.x, normY: y-this.start.y}
-  }
-
-  /** Returns the last two points stored, in order to smooth the curve. */
-  private getLastTwoPoints = () => {
-    const l = this.path.length
-    return {x0: this.path[l-4], y0: this.path[l-3], x1: this.path[l-2], y1: this.path[l-1]}
   }
 
   /** Takes in 3 points, calculates the quadratic bezier curve and return the middle of the curve
