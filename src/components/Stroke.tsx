@@ -11,6 +11,7 @@
   private path: {x: number, y: number, p: number}[] // normalized coords (ie. start at (0, 0))
   private start: {x: number, y: number}
   private id: number
+  private bounding: {x0: number, x1: number, y0: number, y1: number} // bounding area (rectangle)
 
   public constructor() {
     this.path = []
@@ -23,7 +24,10 @@
   ************************/
 
   public addToPath = (x: number, y: number, pressure=0.5) => {
-    if (this.getLength() === 0) this.setStart(x, y)
+    if (this.getLength() === 0) {
+      this.setStart(x, y)
+      this.bounding = {x0: x, x1: x, y0: y, y1: y} // initializes the bounding area
+    }
 
     const newPoint = {x: x, y: y, p: pressure}
     
@@ -52,6 +56,54 @@
     return shortest
   }
 
+  /** Calls when a stroke is finished, applies post processing. */
+  public done = (scale: number) => {
+    let i = 1, r = 0
+    let c0 = this.getCoord(0)
+    while (i+r+3 < this.getLength()) {
+      // get the next 5 coords
+      const c1 = this.getCoord(i)
+      const c2 = this.getCoord(i+r+1)
+      const c3 = this.getCoord(i+r+2)
+      const c4 = this.getCoord(i+r+3)
+      // calculate their vectors
+      const vect0 = {x: c1.x-c0.x, y: c1.y-c0.y}
+      const vect1 = {x: c2.x-c1.x, y: c2.y-c1.y}
+      const vect2 = {x: c3.x-c2.x, y: c3.y-c2.y}
+      const vect3 = {x: c4.x-c3.x, y: c4.y-c3.y}
+
+      // calculate angles between prevVec & lVect, lVect & rVect
+      const angle1 = Stroke.angle(c0, c1, c2)
+      const angle2 = Stroke.angle(c1, c2, c3)
+      // get the ratio of |lVec|/|rVec| and cap it to < 10px (reg ~0.4px)
+      let lengthDiff = (vect1.x**2 + vect1.y**2) / (vect2.x**2 + vect2.y**2) / 10 - 1
+      if (lengthDiff < 0) lengthDiff = 0
+      else if (lengthDiff > 5) lengthDiff = 5
+
+      // if vector 0 & 3 have similar slopes, delete c2
+      const closeSlope = Math.abs(vect3.y / (vect3.x + 1/512) - vect0.y / (vect0.x + 1/512)) < 0.05
+      // if the incomming angle is close to the outgoing anlge, and the two angles are going in opposite directions
+      const closeAngle = Math.max(Math.abs(angle1), Math.abs(angle2)) < (0.3 + lengthDiff/5) && Math.sign(angle1) - Math.sign(angle2) !== 0
+
+      if (closeSlope || closeAngle) {
+        this.setCoord(i+1+r, null) // remove the middle coord
+        r++
+      }
+      else {
+        c0 = c1
+        i = i + r + 1
+        r = 0
+
+        // updates bounding
+        if (c1.x < this.bounding.x0) this.bounding.x0 = c1.x
+        else if (c1.x > this.bounding.x1) this.bounding.x1 = c1.x
+        if (c1.y < this.bounding.y0) this.bounding.y0 = c1.y
+        else if (c1.y > this.bounding.y1) this.bounding.y1 = c1.y
+      }
+    }
+    this.removeNull()
+  }
+
   /** Applies a function to all points in the stroke. */
   public map = (f: Function) => {
     for (let i = 0; i < this.getLength(); i++) {
@@ -75,11 +127,10 @@
           Getters
   ************************/
 
-  /** returns a coord along the path at index, optionally pass in offsets to offset the normalized coord */
-  public getCoord = (index: number, offsetX=0, offsetY=0) => {
+  /** returns a coord along the path at index, allows negative indexing. */
+  public getCoord = (index: number) => {
     if (index < 0) index = this.getLength() + index
-    if (this.path[index] === undefined) console.log(index)
-    return {x: this.path[index].x + offsetX, y: this.path[index].y + offsetY} 
+    return this.path[index]
   }
   public getPath = () => this.path
   public getID = () => this.id
@@ -95,11 +146,20 @@
     this.start = {x: startX, y: startY}
   }
 
-  /** Sets the x, y values for a point in the stroke. */
+  /** Sets the x, y values for a point in the stroke, if coord is null, set path[index] = null. */
   private setCoord = (index: number, coord: {x: number, y: number}) => {
     if (index < 0) index = this.getLength() + index
+    if (coord === null) {
+      this.path[index] = null
+      return
+    }
     this.path[index].x = coord.x
     this.path[index].y = coord.y
+  }
+
+  /** Removes null points from the stroke path. */
+  private removeNull = () => {
+    this.path = this.path.filter(Boolean)
   }
 
    /** Normalizes a coord based on startX, startY values */
@@ -135,6 +195,18 @@
     }
     else dist = magU
     return dist
+  }
+
+  /** Returns the angle difference between <p0, p1> and <p1, p2>. */
+  private static angle = (p0: {x: number, y: number}, p1: {x: number, y: number}, p2: {x: number, y: number}) => {
+    const v0 = {x: p1.x-p0.x, y: p1.y-p0.y}
+    const v1 = {x: p2.x-p1.x, y: p2.y-p1.y}
+
+    const ang = Math.acos((v0.x*v1.x + v0.y*v1.y) / Math.sqrt((v0.x**2+v0.y**2) * (v1.x**2+v1.y**2))) // dot product
+    const dir = Math.sign(v0.y * v1.x - v0.x * v1.y) // cross product
+    
+    
+    return ang * dir
   }
 }
 
