@@ -48,9 +48,19 @@ import Stroke from './Stroke'
     this.strokeIDs = this.strokeIDs.filter((s) => s !== strokeID)
   }
 
+  /** Returns the last stroke in radius to the passed in [relative] coord. If none found, return null.  */
+  public nearestStroke = (x: number, y: number, radius: number) => {
+    for (let i = this.numStrokes() - 1; i >= 0; i--) { // loops through each stroke in strokes
+      if (this.getStroke(i).distanceTo(x, y) < radius) {
+        return this.getStroke(i)
+      }
+    }
+    return null
+  }
+
   public isEmpty = () => this.strokeIDs.length === 0
 
-  public numElements = () => this.strokes.length
+  public numStrokes = () => this.strokes.length
   
   public enclosesVertex = (x: number, y: number) => {
       return x - this.startX >= 0 && this.endX - x > 0 && y - this.startY >= 0 && this.endY - y > 0
