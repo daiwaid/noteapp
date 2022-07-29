@@ -1,5 +1,5 @@
 import React from 'react'
-import Canvas from './components/Canvas'
+import CanvasManager from './components/CanvasManager'
 
 
 

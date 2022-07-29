@@ -321,6 +321,8 @@ class Canvas extends React.Component<Props> {
     /** adds a stroke to be redrawn */
     const addStroke = (stroke: Stroke) => {
       const start = this.processCoord(stroke.getStart(), 2, contextNum) // processe the coord
+      context.strokeStyle = stroke.getStyle()
+      context.lineWidth = stroke.getWidth()
       context.moveTo(start.x, start.y)
       context.arc(start.x, start.y, stroke.getWidth()/10, 0, Math.PI*2) // draws a circle at the starting position
       // for (let i = 1; i < stroke.getLength()-1; i+=2) {
@@ -448,7 +450,7 @@ class Canvas extends React.Component<Props> {
   /** Removes a stroke from tile and calls rerender. */
   private eraseStroke = (stroke: Stroke) => {
     this.tile.removeStroke(stroke.getID())
-    this.redraw(this.tile.getStrokes(), 'erase')
+    this.redraw(this.tile.getStrokes(), 'refresh')
   }
 
   /** Adds an action to history. */

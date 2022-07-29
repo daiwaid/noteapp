@@ -6,13 +6,14 @@ export const Menu = ({setStrokeColor, setStrokeSize}: {setStrokeColor: any, setS
   console.log(setStrokeSize)
 
   return (
-    <div className="Menu">
+    <div className="Menu" >
       <label>Color </label>
       <input
         type="color"
         onChange={(e) => {
           setStrokeColor(e.target.value)
         }}
+        style={{zIndex:99}}
       />
       <label>Width </label>
       <input
@@ -23,6 +24,7 @@ export const Menu = ({setStrokeColor, setStrokeSize}: {setStrokeColor: any, setS
         onChange={(e) => {
           setStrokeSize(Number(e.target.value))
         }}
+        style={{zIndex:99}}
       />
     </div>
   )
