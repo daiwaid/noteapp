@@ -26,7 +26,6 @@
   public addToPath = (x: number, y: number, pressure=0.5) => {
     if (this.getLength() === 0) {
       this.setStart(x, y)
-      this.bounding = {x0: x, x1: x, y0: y, y1: y} // initializes the bounding area
     }
 
     const newPoint = {x: x, y: y, p: pressure}
@@ -60,32 +59,29 @@
   public done = (scale: number) => {
     let i = 1, r = 0
     let c0 = this.getCoord(0)
-    while (i+r+3 < this.getLength()) {
+    this.bounding = {x0: c0.x, x1: c0.x, y0: c0.y, y1: c0.y} // initializes the bounding box
+    while (i+r+2 < this.getLength()) {
       // get the next 5 coords
       const c1 = this.getCoord(i)
       const c2 = this.getCoord(i+r+1)
       const c3 = this.getCoord(i+r+2)
-      const c4 = this.getCoord(i+r+3)
-      // calculate their vectors
-      const vect0 = {x: c1.x-c0.x, y: c1.y-c0.y}
-      const vect1 = {x: c2.x-c1.x, y: c2.y-c1.y}
-      const vect2 = {x: c3.x-c2.x, y: c3.y-c2.y}
-      const vect3 = {x: c4.x-c3.x, y: c4.y-c3.y}
 
       // calculate angles between prevVec & lVect, lVect & rVect
       const angle1 = Stroke.angle(c0, c1, c2)
       const angle2 = Stroke.angle(c1, c2, c3)
+
+      // calculate vectors
+      const vect1 = {x: c2.x-c1.x, y: c2.y-c1.y}
+      const vect2 = {x: c3.x-c2.x, y: c3.y-c2.y}
       // get the ratio of |lVec|/|rVec| and cap it to < 10px (reg ~0.4px)
       let lengthDiff = (vect1.x**2 + vect1.y**2) / (vect2.x**2 + vect2.y**2) / 10 - 1
       if (lengthDiff < 0) lengthDiff = 0
       else if (lengthDiff > 5) lengthDiff = 5
 
-      // if vector 0 & 3 have similar slopes, delete c2
-      const closeSlope = Math.abs(vect3.y / (vect3.x + 1/512) - vect0.y / (vect0.x + 1/512)) < 0.05
       // if the incomming angle is close to the outgoing anlge, and the two angles are going in opposite directions
       const closeAngle = Math.max(Math.abs(angle1), Math.abs(angle2)) < (0.3 + lengthDiff/5) && Math.sign(angle1) - Math.sign(angle2) !== 0
 
-      if (closeSlope || closeAngle) {
+      if (closeAngle) {
         this.setCoord(i+1+r, null) // remove the middle coord
         r++
       }
@@ -101,6 +97,15 @@
         else if (c1.y > this.bounding.y1) this.bounding.y1 = c1.y
       }
     }
+    for (; i < this.getLength(); i++) { // updates bounding box for final few coords
+      const c = this.getCoord(i)
+      if (c === null) continue
+      if (c.x < this.bounding.x0) this.bounding.x0 = c.x
+      else if (c.x > this.bounding.x1) this.bounding.x1 = c.x
+      if (c.y < this.bounding.y0) this.bounding.y0 = c.y
+      else if (c.y > this.bounding.y1) this.bounding.y1 = c.y
+    }
+
     this.removeNull()
   }
 
@@ -136,6 +141,7 @@
   public getID = () => this.id
   public getLength = () => this.path.length
   public getStart = () => this.path[0]
+  public getBoundingBox = () => this.bounding
 
 
   /************************

@@ -23,15 +23,17 @@ class Canvas extends React.Component {
   // stroke saves
   private currStroke = new Stroke()
   private tile = new Tile(0, 0) // [relative]
-  private history: any[] = [] // saves the history
-  private historyIndex = -1 // where in history we are
+  private history: any[] = [] // saves the history, max useable size of 99 (1 always empty)
 
   // active states
+  private windowSize = {x: -1, y: -1} // the size of the active canvas [absolute]
   private isDrawing = false
   private isErasing = false
   private offset = {x: 0, y: 0} // the offset of the canvas [relative]
   private scale = 1
   private contentOffset = {x: 0, y: 0} // the default CSS offset [absolute]
+  private historyIndex = 0 // where in history we are
+  private historyOrigin = 0 // where the "origin index" currently is
 
   // saved states for animations
   private animating = false
@@ -117,14 +119,10 @@ class Canvas extends React.Component {
 
     const eraserSize = 5 // the "radius" to erase
     const mouseCoord = this.processCoord({x: x, y: y}, 0, 2)
-
-    for (let i = this.tile.numElements() - 1; i >= 0; i--) { // loops through each stroke in strokes
-      if (this.tile.getStroke(i).distanceTo(mouseCoord.x, mouseCoord.y) < eraserSize/this.scale) {
-        const toErase = this.tile.getStroke(i)
-        this.addHistory('erase', toErase)
-        this.eraseStroke(toErase)
-        break // only erases 1 stroke
-      }
+    const toErase = this.tile.nearestStroke(mouseCoord.x, mouseCoord.y, eraserSize/this.scale)
+    if (toErase !== null) { // if found a stroke
+      this.addHistory('erase', toErase)
+      this.eraseStroke(toErase)
     }
     this.lastCoord = mouseCoord
   }
@@ -170,22 +168,28 @@ class Canvas extends React.Component {
   }
 
   /** Resizes the canavs, also reapplies default settings. */
-  private resize = () => { // TODO when resize shift content so center is preserved
+  private resize = () => {
+    const newWindowSize = {x: window.innerWidth, y: window.innerHeight}
     this.dpr = window.devicePixelRatio * 2
-    // activeContext
-    this.activeContext.canvas.width = window.innerWidth * this.dpr
-    this.activeContext.canvas.height = window.innerHeight * this.dpr
-    this.activeContext.canvas.style.width = `${window.innerWidth}px`
-    this.activeContext.canvas.style.height = `${window.innerHeight}px`
+    const newCanvasSize = {x: newWindowSize.x * this.dpr, y: newWindowSize.y * this.dpr}
+    // if resize is very small, ignore
+    if (Math.abs(this.windowSize.x - newWindowSize.x) + Math.abs(this.windowSize.y - newWindowSize.y) < this.dpr*2) return
 
-    this.contentContext.canvas.width = window.innerWidth * this.dpr * 2
-    this.contentContext.canvas.height = window.innerHeight * this.dpr * 2
-    this.contentContext.canvas.style.width = `${window.innerWidth * 2}px`
-    this.contentContext.canvas.style.height = `${window.innerHeight * 2}px`
-    this.contentOffset = {x: -window.innerWidth/2, y: -window.innerHeight/2}
+    // activeContext
+    this.activeContext.canvas.width = newCanvasSize.x
+    this.activeContext.canvas.height = newCanvasSize.y
+    this.activeContext.canvas.style.width = `${newWindowSize.x}px`
+    this.activeContext.canvas.style.height = `${newWindowSize.y}px`
+
+    this.contentContext.canvas.width = newCanvasSize.x * 2
+    this.contentContext.canvas.height = newCanvasSize.y * 2
+    this.contentContext.canvas.style.width = `${newWindowSize.x * 2}px`
+    this.contentContext.canvas.style.height = `${newWindowSize.y * 2}px`
+    this.contentOffset = {x: -newWindowSize.x/2, y: -newWindowSize.y/2}
     this.contentContext.canvas.style.left = `${this.contentOffset.x}px`
     this.contentContext.canvas.style.top = `${this.contentOffset.y}px`
 
+    // updates canvas config
     for (const context of [this.activeContext, this.contentContext]) {
       context.scale(this.dpr,this.dpr)
       context.lineCap = 'round' // how the end of each line look
@@ -193,28 +197,50 @@ class Canvas extends React.Component {
       context.lineWidth = this.strokeWidth
       context.lineJoin = 'round' // how lines are joined
     }
-    this.redraw(this.tile.getStrokes(), 'draw')
+
+    const canvasDiffX = this.windowSize.x - newWindowSize.x
+    const canvasDiffY = this.windowSize.y - newWindowSize.y
+    if (this.windowSize.x >= 0) { // shifts offset so center is retained and update canvasSize
+      this.offset.x += Math.round(canvasDiffX / this.scale)
+      this.offset.y += Math.round(canvasDiffY / this.scale)
+    }
+    this.windowSize = newWindowSize
+    
+    this.redraw(this.tile.getStrokes(), 'refresh')
   }
 
 
   private undo = () => {
-    if (this.historyIndex < 0) return // no more to undo
-    const hist = this.history[this.historyIndex--]
+    if (this.historyIndex === this.historyOrigin) return // no more to undo
+    const hist = this.history[this.historyIndex]
+    if (hist === undefined) return // if empty
     switch (hist.action) {
       case 'draw': this.eraseStroke(hist.data); break;
       case 'erase': this.addStroke(hist.data); break;
       default: break;
     }
+    this.scrollToObj(hist.data)
+
+    // decrement history index
+    if (this.historyIndex !== 0) this.historyIndex--
+    else {
+      this.historyIndex = 99
+    }
   }
   private redo = () => {
-    if (this.historyIndex+1 < this.history.length) {
-      const hist = this.history[++this.historyIndex]
-      switch (hist.action) {
-      case 'draw': this.addStroke(hist.data); break;
-      case 'erase': this.eraseStroke(hist.data); break;
-      default: break;
+    const nextIndex = (this.historyIndex + 1) % 100
+    if (nextIndex === this.historyOrigin) return // if reached end
+
+    const hist = this.history[nextIndex]
+    if (hist === undefined) return // if empty
+
+    this.historyIndex = nextIndex
+    switch (hist.action) {
+    case 'draw': this.addStroke(hist.data); break;
+    case 'erase': this.eraseStroke(hist.data); break;
+    default: break;
     }
-    }
+    this.scrollToObj(hist.data)
   }
 
 
@@ -244,17 +270,14 @@ class Canvas extends React.Component {
       const start = this.processCoord(stroke.getStart(), 2, 1) // processe the coord
       context.moveTo(start.x, start.y)
       context.arc(start.x, start.y, this.strokeWidth/10, 0, Math.PI*2) // draws a circle at the starting position
-      // let midpoint = this.processCoord(stroke.getCoord(0), 2, 1)
-      // for (let i = 1; i < stroke.getLength()-1; i++) {
-      //   const zoomed1 = this.processCoord(stroke.getCoord(i), 2, 1)
-      //   const zoomed2 = this.processCoord(stroke.getCoord(i+1), 2, 1)
-
-      //   context.quadraticCurveTo(zoomed1.x, zoomed1.y, zoomed2.x, zoomed2.y)
-      // }
       for (const coord of stroke.getCoords()) {
         const zoomed = this.processCoord(coord, 2, 1) // processes the coord
         context.lineTo(zoomed.x, zoomed.y)
       }
+      // const bound = stroke.getBoundingBox()
+      // const tl = this.processCoord({x: bound.x0, y: bound.y0}, 2, 1)
+      // const br = this.processCoord({x: bound.x1, y: bound.y1}, 2, 1)
+      // context.strokeRect(tl.x, tl.y, br.x-tl.x, br.y-tl.y)
     }
 
     // adds all strokes to be redrawn and then draws all at once
@@ -280,7 +303,7 @@ class Canvas extends React.Component {
       prevTimeStamp = timeStamp
 
       // checks page movement and zoom
-      const moved = this.animateMove(timestep)
+      const moved = this.animateScroll(timestep)
       const zoomed = this.animateZoom(timestep)
       doneChanging = moved.done && zoomed.done
 
@@ -310,6 +333,8 @@ class Canvas extends React.Component {
         for (const coord of this.currStroke.getCoords()) {
           this.activeContext.lineTo(coord.x, coord.y)
         }
+        const end = this.currStroke.getCoord(-1)
+        this.activeContext.arc(end.x, end.y, this.strokeWidth/2, 0, Math.PI*2) // draws a 5x circle at the ending position
         this.activeContext.stroke()
         currLength = this.currStroke.getLength()
       }
@@ -339,11 +364,15 @@ class Canvas extends React.Component {
 
   /** Adds an action to history. */
   private addHistory = (action: string, data: any) => {
-    this.history[++this.historyIndex] = {action: action, data: data}
+    this.historyIndex = (this.historyIndex + 1) % 100
+    this.history[this.historyIndex] = {action: action, data: data}
+    // if added something, bring origin next to history and erase anything there
+    this.historyOrigin = (this.historyIndex + 1) % 100
+    this.history[this.historyOrigin] = undefined
   }
 
   /** Moves the page for 1 frame. */
-  private animateMove = (timestep: number) => {
+  private animateScroll = (timestep: number) => {
     let doneChanging = true
     let needRender = false
 
@@ -416,6 +445,38 @@ class Canvas extends React.Component {
       return {done: true, render: true}
     }
     return {done: false, render: render}
+  }
+
+  /** If the object is not on screen, scroll so it's within the center half of the screen. Optionally performs an action after scrolling.
+   * NOTE: object needs to have a 'boundingBox' property. */
+  private scrollToObj = (object: any) => {
+    const whereTo = () => { // returns the coord that needs to be on screen
+      const toCoord = {x: 0, y: 0}
+      const boundCenter = {x: (bounds.x0+bounds.x1)/2, y: (bounds.y0+bounds.y1)/2}
+      // get screen size
+      const topLeft = this.processCoord({x: 0, y: 0}, 0, 2)
+      const bottomRight = this.processCoord(this.windowSize, 0, 2)
+      
+      if (boundCenter.x < topLeft.x) {          // left
+        toCoord.x = Math.floor((topLeft.x - boundCenter.x) * this.scale) + this.windowSize.x/4
+      }
+      else if (boundCenter.x > bottomRight.x) { // right
+        toCoord.x = Math.floor((bottomRight.x - boundCenter.x) * this.scale) - this.windowSize.x/4
+      }
+      if (boundCenter.y < topLeft.y) {          // top
+        toCoord.y = Math.floor((topLeft.y - boundCenter.y) * this.scale) + this.windowSize.y/4
+      }
+      else if (boundCenter.y > bottomRight.y) { // bottom
+        toCoord.y = Math.floor((bottomRight.y - boundCenter.y) * this.scale) - this.windowSize.y/4
+      }
+      return toCoord
+    }
+
+    const bounds = object.getBoundingBox() // get the bounds
+    if (bounds === null) return // if no bounds do nothing
+
+    this.toOffset = whereTo() // calculate offset and set the offset
+    this.rerender() // let animateScroll() take care of the rest
   }
 
   /** Converts coords from one coordinate (system?) to another, returns a NEW coord object.
