@@ -311,7 +311,7 @@ class Canvas extends React.Component<Props> {
     }
     // sets to either only draw in the difference or remove the difference
     if (type === 'draw') context.globalCompositeOperation = 'source-over'
-    else if (type === 'erase') context.globalCompositeOperation = 'destination-in'
+    // else if (type === 'erase') context.globalCompositeOperation = 'destination-in'
     else {
       context.globalCompositeOperation = 'source-over'
       Canvas.clearScreen(context)
@@ -320,6 +320,7 @@ class Canvas extends React.Component<Props> {
 
     /** adds a stroke to be redrawn */
     const addStroke = (stroke: Stroke) => {
+      context.beginPath()
       const start = this.processCoord(stroke.getStart(), 2, contextNum) // processe the coord
       context.strokeStyle = stroke.getStyle()
       context.lineWidth = stroke.getWidth()
