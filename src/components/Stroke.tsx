@@ -10,10 +10,14 @@
   private static masterID: number = 0
   private path: {x: number, y: number, p: number}[] // normalized coords (ie. start at (0, 0))
   private start: {x: number, y: number}
+  private style: string|CanvasGradient|CanvasPattern
+  private width: number
   private id: number
 
   public constructor() {
     this.path = []
+    this.style = 'black'
+    this.width = 2
     this.id = Stroke.masterID++
   }
 
@@ -70,6 +74,16 @@
 
   public isEmpty = () => this.path.length === 0
 
+  /************************
+          Setters
+  ************************/
+  public setStyle = (style: string | CanvasGradient | CanvasPattern) => {
+    this.style = style
+  }
+
+  public setWidth = (width: number) => {
+    this.width = width
+  }
 
   /************************
           Getters
@@ -85,6 +99,8 @@
   public getID = () => this.id
   public getLength = () => this.path.length
   public getStart = () => this.path[0]
+  public getStyle = () => this.style
+  public getWidth = () => this.width
 
 
   /************************

@@ -2,11 +2,17 @@ import React from 'react'
 import DocumentMeta from 'react-document-meta'
 import Stroke from './Stroke'
 import Tile from './Tile'
+import '../App.css'
+
+type Props = {
+  strokeColor: string,
+  strokeSize: number
+};
 
 /**
  * Canvas component covering the entire window
  */
-class Canvas extends React.Component {
+class Canvas extends React.Component<Props> {
 
   /************************
           Variables
@@ -46,10 +52,12 @@ class Canvas extends React.Component {
             Draw
   ************************/
 
-  private strokeWidth = 2
-
   // when LMB is pressed, begins a new path and move it to the mouse's position
   private startDraw = (pointerEvent: PointerEvent) => {
+    this.currStroke.setStyle(this.props.strokeColor)
+    this.currStroke.setWidth(this.props.strokeSize)
+    // console.log('currStyle', this.currStroke.getStyle())
+    // console.log('currWidth', this.currStroke.getWidth())
     this.isDrawing = true
     this.draw(pointerEvent)
     this.rerenderActive()
@@ -106,7 +114,7 @@ class Canvas extends React.Component {
         console.log("erased")
         const toErase = this.tile.getStroke(i)
         this.tile.removeStroke(toErase.getID())
-        this.redraw(this.tile.getStrokes(), 'erase')
+        this.redraw(this.tile.getStrokes(), 'refresh')
         break // only erases 1 stroke
       }
     }
@@ -152,11 +160,11 @@ class Canvas extends React.Component {
 
       context.scale(this.dpr,this.dpr)
       context.lineCap = 'round' // how the end of each line look
-      context.strokeStyle = 'black' // sets the color of the stroke
-      context.lineWidth = this.strokeWidth
+      // context.strokeStyle = 'black' // sets the color of the stroke
+      // context.lineWidth = this.strokeWidth
       context.lineJoin = 'round' // how lines are joined
     }
-    this.redraw(this.tile.getStrokes(), 'draw')
+    this.redraw(this.tile.getStrokes(), 'refresh')
   }
 
 
@@ -167,7 +175,6 @@ class Canvas extends React.Component {
   /** "(re)draws" all strokes for ONE canvas layer by only drawing the difference;
    * type: either 'draw', 'erase', or 'refresh' */
    private redraw = (strokes: Stroke[], type='refresh', context=this.contentContext) => {
-
     if (strokes === undefined || strokes.length === 0) { // if no strokes then clear screen
       Canvas.clearScreen(context)
       return
@@ -183,20 +190,22 @@ class Canvas extends React.Component {
 
     /** adds a stroke to be redrawn */
     const addStroke = (stroke: Stroke) => {
+      context.beginPath()
       const start = this.processCoord(stroke.getStart(), false) // processe the coord
+      context.strokeStyle = stroke.getStyle()
+      context.lineWidth = stroke.getWidth()
       context.moveTo(start.x, start.y)
-      context.arc(start.x, start.y, this.strokeWidth/10, 0, Math.PI*2) // draws a circle at the starting position
+      context.arc(start.x, start.y, stroke.getWidth()/10, 0, Math.PI*2) // draws a circle at the starting position
       for (const coord of stroke.getCoords()) {
         const zoomed = this.processCoord(coord, false) // processes the coord
         // context.quadraticCurveTo(path[i*4], path[i*4+1], path[i*4+2], path[i*4+3])
         context.lineTo(zoomed.x, zoomed.y)
       }
+      context.stroke()
     }
 
     // adds all strokes to be redrawn and then draws all at once
-    context.beginPath()
     strokes.forEach(addStroke)
-    context.stroke()
   }
 
   /** Re-renders the content layer repeatedly until no more changes are detected. */
@@ -240,9 +249,11 @@ class Canvas extends React.Component {
         if (this.currStroke.getLength() === 0) return // if stroke is empty return
 
         this.activeContext.beginPath()
+        this.activeContext.strokeStyle = this.currStroke.getStyle()
+        this.activeContext.lineWidth = this.currStroke.getWidth()
         const start = this.currStroke.getStart()
         this.activeContext.moveTo(start.x, start.y)
-        this.activeContext.arc(start.x, start.y, this.strokeWidth/10, 0, Math.PI*2) // draws a circle at the starting position
+        this.activeContext.arc(start.x, start.y, this.currStroke.getWidth()/10, 0, Math.PI*2) // draws a circle at the starting position
         for (const coord of this.currStroke.getCoords()) {
           this.activeContext.lineTo(coord.x, coord.y)
         }
@@ -396,7 +407,8 @@ class Canvas extends React.Component {
         onPointerLeave={this.pointerUp}
         onKeyDown={this.keyDown}
         onContextMenu={(e) => e.preventDefault()}
-        tabIndex={0}>
+        tabIndex={0}
+        className="Canvas">
 
         <DocumentMeta {...meta} />
 
