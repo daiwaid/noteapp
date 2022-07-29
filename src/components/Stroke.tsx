@@ -35,7 +35,7 @@
       this.setCoord(-1, {x: newX, y: newY})
     }
 
-    // const {normX, normY} = this.normalize(x, y)
+    const {normX, normY} = this.normalize(x, y)
     this.path.push(newPoint)
   }
 
