@@ -1,3 +1,5 @@
+import { Box, Coord, Point } from './Interfaces'
+
 /**
  * Wrapper class for strokes
  */
@@ -8,12 +10,12 @@
   ************************/
  
   private static masterID: number = 0
-  private path: {x: number, y: number, p: number}[] // normalized coords (ie. start at (0, 0))
-  private start: {x: number, y: number}
+  private path: Point[] // normalized coords (ie. start at (0, 0))
+  private start: Coord
   private style: string|CanvasGradient|CanvasPattern
   private width: number
   private id: number
-  private bounding: {x0: number, x1: number, y0: number, y1: number} // bounding area (rectangle)
+  private bounding: Box // bounding area (rectangle)
 
   public constructor() {
     this.path = []
@@ -27,7 +29,7 @@
         Functions
   ************************/
 
-  public addToPath = (x: number, y: number, pressure=0.5) => {
+  public addToPath = (x: number, y: number, pressure=0.5): void => {
     if (this.getLength() === 0) {
       this.setStart(x, y)
     }
@@ -39,12 +41,11 @@
       this.setCoord(-1, {x: newX, y: newY})
     }
 
-    const {normX, normY} = this.normalize(x, y)
     this.path.push(newPoint)
   }
 
   /** Returns the shortest distance from the stroke to the point (x, y) */
-  public distanceTo = (x: number, y: number) => {
+  public distanceTo = (x: number, y: number): number => {
     let shortest = 9999999
     if (this.getLength() === 1) { // if only 1 point in stroke
       const p = this.getCoord(0)
@@ -60,7 +61,7 @@
   }
 
   /** Calls when a stroke is finished, applies post processing. */
-  public done = (scale: number) => {
+  public done = (scale: number): void => {
     let i = 1, r = 0
     let c0 = this.getCoord(0)
     this.bounding = {x0: c0.x, x1: c0.x, y0: c0.y, y1: c0.y} // initializes the bounding box
@@ -113,8 +114,20 @@
     this.removeNull()
   }
 
+  /** Adds an offset to all coords as well as the bounding box. */
+  public addOffset = (offsetX: number, offsetY: number): void => {
+    for (const coord of this.path) {
+      coord.x += offsetX
+      coord.y += offsetY
+    }
+    this.bounding.x0 += offsetX
+    this.bounding.x1 += offsetX
+    this.bounding.y0 += offsetY
+    this.bounding.y1 += offsetY
+  }
+
   /** Applies a function to all points in the stroke. */
-  public map = (f: Function) => {
+  public map = (f: Function): void => {
     for (let i = 0; i < this.getLength(); i++) {
       this.setCoord(i, f(this.path[i]))
     }
@@ -164,12 +177,12 @@
       Helper functions
   ************************/
 
-  private setStart = (startX: number, startY: number) => {
+  private setStart = (startX: number, startY: number): void => {
     this.start = {x: startX, y: startY}
   }
 
   /** Sets the x, y values for a point in the stroke, if coord is null, set path[index] = null. */
-  private setCoord = (index: number, coord: {x: number, y: number}) => {
+  private setCoord = (index: number, coord: Coord): void => {
     if (index < 0) index = this.getLength() + index
     if (coord === null) {
       this.path[index] = null
@@ -180,7 +193,7 @@
   }
 
   /** Removes null points from the stroke path. */
-  private removeNull = () => {
+  private removeNull = (): void => {
     this.path = this.path.filter(Boolean)
   }
 
@@ -191,12 +204,12 @@
 
   /** Takes in 3 points, calculates the quadratic bezier curve and return the middle of the curve
    * (aka smoothes out the middle point) */
-  private static bezier = (p0: {x: number, y: number}, p1: {x: number, y: number}, p2: {x: number, y: number}) => {
+  private static bezier = (p0: Coord, p1: Coord, p2: Coord) => {
     return {newX : .5 ** 2 * p0.x + 2 * .5 ** 2 * p1.x + .5**2 * p2.x, newY : .5 ** 2 * p0.y + 2 * .5 ** 2 * p1.y + .5 **2 * p2.y}
   }
 
   /** Finds the distance between a point and a line formed by 2 points in 2D */
-  private static distance = (px: number, py: number, lx0: number, ly0: number, lx1: number, ly1: number) => {
+  private static distance = (px: number, py: number, lx0: number, ly0: number, lx1: number, ly1: number): number => {
     const ux = px - lx0
     const uy = py - ly0
     const vx = lx1 - lx0
@@ -220,7 +233,7 @@
   }
 
   /** Returns the angle difference between <p0, p1> and <p1, p2>. */
-  private static angle = (p0: {x: number, y: number}, p1: {x: number, y: number}, p2: {x: number, y: number}) => {
+  private static angle = (p0: Coord, p1: Coord, p2: Coord): number => {
     const v0 = {x: p1.x-p0.x, y: p1.y-p0.y}
     const v1 = {x: p2.x-p1.x, y: p2.y-p1.y}
 

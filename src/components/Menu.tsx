@@ -2,8 +2,8 @@ import React from 'react'
 import '../App.css'
 
 export const Menu = ({setStrokeColor, setStrokeSize}: {setStrokeColor: any, setStrokeSize: any}) => {
-  console.log(setStrokeColor)
-  console.log(setStrokeSize)
+  // console.log(setStrokeColor)
+  // console.log(setStrokeSize)
 
   return (
     <div className="Menu" >

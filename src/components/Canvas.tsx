@@ -2,6 +2,7 @@ import React from 'react'
 import DocumentMeta from 'react-document-meta'
 import Stroke from './Stroke'
 import Tile from './Tile'
+import { Box, Coord } from './Interfaces'
 import '../App.css'
 
 type Props = {
@@ -44,7 +45,7 @@ class Canvas extends React.Component<Props> {
   private isErasing = false
   private offset = {x: 0, y: 0} // the offset of the canvas [relative]
   private scale = 1
-  private contentOffset = {x: 0, y: 0} // the default CSS offset [absolute]
+  private canvasOffset = {x: 0, y: 0} // the starting CSS offset (so canvas is centered) [absolute]
   
 
   // saved states for animations (mostly)
@@ -53,17 +54,20 @@ class Canvas extends React.Component<Props> {
   private dpr = 1
   private lastMouseCoord = {x: 0, y: 0} // keeps track of the last mouse position [relative]
   private pointerDownOffset = {x: 0, y: 0} // the canvas offset when pointer is down
-  private toOffset = {x: 0, y: 0} // how much more to offset [content absolute]
+  private toOffset = {x: 0, y: 0} // how much more to offset [absolute]
   private cssOffset = {x: 0, y: 0} // how much CSS is offset from content offset [absolute]
   private toScale = this.scale // unlike toOffset, this is the new scale after zooming, not offset
-  private zoomCenterAbs = {x: 0, y: 0} // where to zoom from [content absolute]
+  private zoomCenterAbs = {x: 0, y: 0} // where to zoom from [absolute]
   private zoomCenterRel = {x: 0, y: 0} // [relative]
   private cssScale = 1 // how much CSS is zoomed
   private isZooming = false
   private selectedObjs: any[] = [] // the currently selected objects
-  private selectionBox: {x0: number, x1: number, y0: number, y1: number} // the box around currently selected object(s) [relative]
-  private isSelected = false // if currently dragging the selection box around
-  
+  private selectionBox = {x0: 0, x1: 0, y0: 0, y1: 0} // the box around currently selected object(s) [relative]
+  private isSelected = 0 // if currently interacting with the selection box. 0: no, 1: move, 2-9: transform
+  private selectStart = {x: 0, y: 0} // the starting coords when moving with select tool [relative]
+  private activeOffset = {x: 0, y: 0} // the (CSS) offset for the active layer [absolute]
+  private activeZoomCenter = {x: 0, y: 0} // the zoom center for the active layer
+  private activeScale = 1 // the scale for the active layer
 
 
   /************************
@@ -74,8 +78,6 @@ class Canvas extends React.Component<Props> {
   private startDraw = (pointerEvent: PointerEvent) => {
     this.currStroke.setStyle(this.props.strokeColor)
     this.currStroke.setWidth(this.props.strokeSize)
-    // console.log('currStyle', this.currStroke.getStyle())
-    // console.log('currWidth', this.currStroke.getWidth())
     this.draw(pointerEvent)
     this.rerenderActive()
   }
@@ -88,8 +90,8 @@ class Canvas extends React.Component<Props> {
 
     if (this.currStroke.getLength() !== 0) {
       const last = this.currStroke.getCoord(-1)
-      if ((x - last.x)**2 + (y - last.y)**2 < 9) return // if didn't move much, don't record
-    } 
+      if ((x - last.x)**2 + (y - last.y)**2 < 9*this.dpr**2) return // if didn't move much, don't record
+    }
     // draws the line
     this.currStroke.addToPath(x, y)
   }
@@ -98,7 +100,7 @@ class Canvas extends React.Component<Props> {
     if (this.currStroke.isEmpty()) return
 
     // converts stroke coords from screen absolute to relative and add to tile
-    this.currStroke.map((c: any) => this.processCoord(c, 0, 2, this.pointerDownOffset))
+    this.currStroke.map((c: any) => this.processCoord(c, true, this.pointerDownOffset))
     // console.log("before:", this.currStroke.getLength())
     this.currStroke.done(this.scale)
     // console.log("after:", this.currStroke.getLength())
@@ -113,6 +115,7 @@ class Canvas extends React.Component<Props> {
   ************************/
 
   private startErase = (pointerEvent: PointerEvent) => {
+    if (this.selectedObjs.length > 0) this.deselect() // if selected something, deselect it
     this.isErasing = true
     this.erase(pointerEvent)
   }
@@ -122,12 +125,12 @@ class Canvas extends React.Component<Props> {
     if (!this.isErasing) return
     
     const [x, y] = [pointerEvent.offsetX, pointerEvent.offsetY] // gets current mouse position
-    const lastCoordNoOffset = this.processCoord(this.lastMouseCoord, 2, 0)
+    const lastCoordNoOffset = this.processCoord(this.lastMouseCoord, false)
     // if mouse didn't move much then don't recheck
     if (Canvas.withinLength(x, y, lastCoordNoOffset.x, lastCoordNoOffset.y, 2*this.dpr)) return 
     if (this.tile.isEmpty()) return
 
-    const mouseCoord = this.processCoord({x: x, y: y}, 0, 2)
+    const mouseCoord = this.processCoord({x: x, y: y}, true)
     const toErase = this.tile.nearestStroke(mouseCoord.x, mouseCoord.y, Canvas.defaultRadius/this.scale)
     if (toErase !== null) { // if found a stroke
       this.addHistory('erase', toErase)
@@ -145,42 +148,51 @@ class Canvas extends React.Component<Props> {
   ************************/
 
   private selectDown = (pointerEvent: PointerEvent) => {
-    const [x, y] = [pointerEvent.offsetX, pointerEvent.offsetY] // gets current mouse position
-    this.lastMouseCoord = {x: x, y: y}
-    const mouseCoord = this.processCoord({x: x, y: y}, 0, 2) // get relative mouse coords
+    const mouseCoord = this.processCoord({x: pointerEvent.offsetX, y: pointerEvent.offsetY}, true) // get relative mouse coords
+    this.lastMouseCoord = {x: pointerEvent.clientX, y: pointerEvent.clientY} // logs the absolute coords
 
-    // if clicked within selectionBox don't do anything
+    // if clicked within selectionBox don't find new object
     if (this.selectedObjs.length > 0 && Canvas.withinBox(mouseCoord, this.selectionBox)) {
-      this.isSelected = true
+      this.isSelected = 1
+      this.selectStart = mouseCoord
     }
-    else {
-      // otherwise select a new object
+    else { // otherwise find a new object
       const selected = this.tile.nearestStroke(mouseCoord.x, mouseCoord.y, Canvas.defaultRadius*this.dpr/this.scale)
 
-      this.selectedObjs = [] // clears selected objects
+      this.deselect()
+
       if (selected !== null) {
-        this.selectedObjs.push(selected)
-        this.selectionBox = selected.getBoundingBox()
+        this.addToSelection(selected)
+        this.renderSelection()
       }
     }
-    this.rerenderActive()
   }
   private select = (pointerEvent: PointerEvent) => {
-    if (this.mode !== 'select' || !this.isSelected) return
+    if (this.mode !== 'select' || this.isSelected === 0) return
 
-    const [x, y] = [pointerEvent.offsetX, pointerEvent.offsetY] // gets current mouse position
-    const movedX = (x - this.lastMouseCoord.x) / this.scale
-    const movedY = (y - this.lastMouseCoord.y) / this.scale
-    
-    this.selectionBox.x0 += movedX
-    this.selectionBox.x1 += movedX
-    this.selectionBox.y0 += movedY
-    this.selectionBox.y1 += movedY
+    const [x, y] = [pointerEvent.clientX, pointerEvent.clientY] // gets current mouse position
+    const movedX = x - this.lastMouseCoord.x
+    const movedY = y - this.lastMouseCoord.y
+    if (Math.abs(movedX)+Math.abs(movedY) > 3*this.dpr) {
+      this.moveActive(movedX, movedY)
 
-    this.lastMouseCoord = {x: x, y: y}
+      this.lastMouseCoord = {x: x, y: y}
+    }
   }
-  private selectUp = () => {
-    this.isSelected = false
+  private selectUp = (pointerEvent: PointerEvent) => {
+    if (this.mode !== 'select' || this.isSelected === 0) return
+
+    this.resetActivePos()
+    const selectEnd = this.processCoord({x: pointerEvent.offsetX, y: pointerEvent.offsetY}, true)
+    const xDiff = selectEnd.x - this.selectStart.x
+    const yDiff = selectEnd.y - this.selectStart.y
+    
+    if (xDiff !== 0 || yDiff !== 0) { // save to history
+      const log = {movedX: xDiff, movedY: yDiff}
+      this.addHistory('move', this.selectedObjs, log)
+    }
+
+    this.isSelected = 0
   }
 
 
@@ -207,13 +219,13 @@ class Canvas extends React.Component<Props> {
       newOffset.x = this.zoomCenterRel.x - this.zoomCenterAbs.x / this.scale
       newOffset.y = this.zoomCenterRel.y - this.zoomCenterAbs.y / this.scale
     }
-    this.zoomCenterAbs = this.processCoord({x: wheelEvent.offsetX, y: wheelEvent.offsetY}, 0, 1)
-    this.zoomCenterRel = this.processCoord(this.zoomCenterAbs, 1, 2, newOffset)
+    this.zoomCenterAbs = {x: wheelEvent.offsetX, y: wheelEvent.offsetY}
+    this.zoomCenterRel = this.processCoord(this.zoomCenterAbs, true, newOffset)
 
     this.toScale += Math.round(this.toScale+1) * Math.sign(-wheelEvent.deltaY) / 12 // scales how much is zoomed
     console.log("zoom", this.toScale)
     // caps the zoom
-    if (this.toScale < 0.1) this.toScale = 0.1 
+    if (this.toScale < 0.1) this.toScale = 0.1
     else if (this.toScale > 20) this.toScale = 20
 
     this.isZooming = true
@@ -228,26 +240,18 @@ class Canvas extends React.Component<Props> {
     // if resize is very small, ignore
     if (Math.abs(this.windowSize.x - newWindowSize.x) + Math.abs(this.windowSize.y - newWindowSize.y) < this.dpr*2) return
 
-    // activeContext
-    this.activeContext.canvas.width = newCanvasSize.x
-    this.activeContext.canvas.height = newCanvasSize.y
-    this.activeContext.canvas.style.width = `${newWindowSize.x}px`
-    this.activeContext.canvas.style.height = `${newWindowSize.y}px`
+    this.canvasOffset = {x: Math.round(-newWindowSize.x/2), y: Math.round(-newWindowSize.y/2)}
+     // updates canvas config
+     for (const context of [this.activeContext, this.contentContext]) {
+      context.canvas.width = newCanvasSize.x * 2
+      context.canvas.height = newCanvasSize.y * 2
+      context.canvas.style.width = `${newWindowSize.x * 2}px`
+      context.canvas.style.height = `${newWindowSize.y * 2}px`
+      context.canvas.style.left = `${this.canvasOffset.x}px`
+      context.canvas.style.top = `${this.canvasOffset.y}px`
 
-    this.contentContext.canvas.width = newCanvasSize.x * 2
-    this.contentContext.canvas.height = newCanvasSize.y * 2
-    this.contentContext.canvas.style.width = `${newWindowSize.x * 2}px`
-    this.contentContext.canvas.style.height = `${newWindowSize.y * 2}px`
-    this.contentOffset = {x: -newWindowSize.x/2, y: -newWindowSize.y/2}
-    this.contentContext.canvas.style.left = `${this.contentOffset.x}px`
-    this.contentContext.canvas.style.top = `${this.contentOffset.y}px`
-
-    // updates canvas config
-    for (const context of [this.activeContext, this.contentContext]) {
       context.scale(this.dpr,this.dpr)
       context.lineCap = 'round' // how the end of each line look
-      // context.strokeStyle = 'black' // sets the color of the stroke
-      // context.lineWidth = this.strokeWidth
       context.lineJoin = 'round' // how lines are joined
     }
 
@@ -260,18 +264,32 @@ class Canvas extends React.Component<Props> {
     this.windowSize = newWindowSize
     
     this.redraw(this.tile.getStrokes(), 'refresh')
+    this.rerenderActive()
   }
 
   private undo = () => {
     if (this.historyIndex === this.historyOrigin) return // no more to undo
     const hist = this.history[this.historyIndex]
     if (hist === undefined) return // if empty
+    
+    this.deselect(false)
+    let scrollToBox
     switch (hist.action) {
       case 'draw': this.eraseStroke(hist.data); break;
       case 'erase': this.addStroke(hist.data); break;
+      case 'move':
+        for (const obj of hist.data) {
+          obj.addOffset(-hist.log.movedX, -hist.log.movedY)
+          this.addToSelection(obj)
+        }
+        this.calcSelectionBox()
+        scrollToBox = this.selectionBox
+        this.renderSelection()
+        break;
       default: break;
     }
-    this.scrollToObj(hist.data)
+    if (scrollToBox === undefined) scrollToBox = hist.data.getBoundingBox()
+    this.scrollToBox(scrollToBox)
 
     // decrement history index
     if (this.historyIndex !== 0) this.historyIndex--
@@ -285,14 +303,27 @@ class Canvas extends React.Component<Props> {
 
     const hist = this.history[nextIndex]
     if (hist === undefined) return // if empty
+    
 
     this.historyIndex = nextIndex
+    this.deselect(false)
+    let scrollToBox
     switch (hist.action) {
     case 'draw': this.addStroke(hist.data); break;
     case 'erase': this.eraseStroke(hist.data); break;
+    case 'move':
+      for (const obj of hist.data) {
+        obj.addOffset(hist.log.movedX, hist.log.movedY)
+        this.addToSelection(obj)
+      }
+      this.calcSelectionBox()
+      scrollToBox = this.selectionBox
+      this.renderSelection()
+      break;
     default: break;
     }
-    this.scrollToObj(hist.data)
+    if (scrollToBox === undefined) scrollToBox = hist.data.getBoundingBox()
+    this.scrollToBox(scrollToBox)
   }
 
 
@@ -300,10 +331,9 @@ class Canvas extends React.Component<Props> {
            Render
   ************************/
 
-  /** "(re)draws" all strokes for ONE canvas layer by only drawing the difference;
+  /** "(re)draws" all strokes for ONE canvas layer; optionally takes in a color and redraws all strokes in that color.
    * type: either 'draw', 'erase', or 'refresh' */
-   private redraw = (strokes: Stroke[], type='refresh', contextNum=1) => {
-    const context = contextNum === 1 ? this.contentContext : this.activeContext
+   private redraw = (strokes: Stroke[], type='refresh', context=this.contentContext, color: string=undefined) => {
 
     if (strokes === undefined || strokes.length === 0) { // if no strokes then clear screen
       Canvas.clearScreen(context)
@@ -321,18 +351,14 @@ class Canvas extends React.Component<Props> {
     /** adds a stroke to be redrawn */
     const addStroke = (stroke: Stroke) => {
       context.beginPath()
-      const start = this.processCoord(stroke.getStart(), 2, contextNum) // processe the coord
-      context.strokeStyle = stroke.getStyle()
+      const start = this.processCoord(stroke.getStart(), false) // processe the coord
+      context.strokeStyle = color ? color : stroke.getStyle()
       context.lineWidth = stroke.getWidth()
       context.moveTo(start.x, start.y)
       context.arc(start.x, start.y, stroke.getWidth()/10, 0, Math.PI*2) // draws a circle at the starting position
-      // for (let i = 1; i < stroke.getLength()-1; i+=2) {
-      //   const zoomed1 = this.processCoord(stroke.getCoord(i), 2, 1)
-      //   const zoomed2 = this.processCoord(stroke.getCoord(i+1), 2, 1)
-      //   context.quadraticCurveTo(zoomed1.x, zoomed1.y, zoomed2.x, zoomed2.y)
-      // }
+
       for (const coord of stroke.getCoords()) {
-        const zoomed = this.processCoord(coord, 2, contextNum) // processes the coord
+        const zoomed = this.processCoord(coord, false) // processes the coord
         context.lineTo(zoomed.x, zoomed.y)
       }
       context.stroke()
@@ -363,9 +389,11 @@ class Canvas extends React.Component<Props> {
       const zoomed = this.animateZoom(timestep)
       doneChanging = moved.done && zoomed.done
 
-      if (moved.render || zoomed.render) this.redraw(this.tile.getStrokes(), 'refresh')
+      if (moved.render || zoomed.render) {
+        this.redraw(this.tile.getStrokes(), 'refresh')
+        this.renderSelection()
+      }
       if (!doneChanging) {
-        this.rerenderActive()
         window.requestAnimationFrame(animate)
       }
       else this.animating = false // stops animating
@@ -373,7 +401,7 @@ class Canvas extends React.Component<Props> {
     window.requestAnimationFrame(animate)
   }
 
-  /** Re-renders the active layer. All coords in active layer should be absolute. */
+  /** Re-renders the active layer. */
   private rerenderActive = () => {
     let currLength = this.currStroke.getLength()
 
@@ -383,6 +411,8 @@ class Canvas extends React.Component<Props> {
       // redraws this.currStroke
       const drawCurrStroke = () => { 
         if (this.currStroke.getLength() === 0) return // if stroke is empty return
+
+        console.log("drawing")
 
         const offsetDiffX = this.pointerDownOffset.x - (this.offset.x - this.cssOffset.x)
         const offsetDiffY = this.pointerDownOffset.y - (this.offset.y - this.cssOffset.y)
@@ -403,38 +433,73 @@ class Canvas extends React.Component<Props> {
         currLength = this.currStroke.getLength()
       }
 
-      // redraws selecte strokes and give them an outline
-      const drawSelectedStrokes = () => {
-        this.redraw(this.selectedObjs, 'draw', 0)
-      }
-
-      // draws the selection box
-      const drawSelectionBox = () => { 
-        if (this.selectedObjs.length === 0 || this.mode !== 'select') return
-
-        const topLeft = this.processCoord({x: this.selectionBox.x0, y: this.selectionBox.y0}, 2, 0)
-        const bottomRight = this.processCoord({x: this.selectionBox.x1, y: this.selectionBox.y1}, 2, 0)
-
-        this.activeContext.lineWidth = this.dpr/2
-        this.activeContext.setLineDash([this.dpr, this.dpr*2]) // draws dashed lines
-        this.activeContext.strokeRect(topLeft.x-this.dpr*2, topLeft.y-this.dpr*2, bottomRight.x-topLeft.x+this.dpr*4, bottomRight.y-topLeft.y+this.dpr*4)
-
-        this.activeContext.lineWidth = this.currStroke.getWidth()
-        this.activeContext.setLineDash([]) // back to straight lines
-      }
-
       const isDrawing = this.isPointerDown && this.mode === 'draw'
       
-      if (true || this.mode === 'select' || currLength !== this.currStroke.getLength()) { // only redraw if a new coord was added
-        console.log("active render", this.isSelected)
-        Canvas.clearScreen(this.activeContext)
+      if (this.mode === 'select' || currLength !== this.currStroke.getLength()) { // only redraw if a new coord was added
+        this.renderSelection()
         drawCurrStroke()
-        drawSelectionBox()
       }
       
-      if (isDrawing || this.isSelected) window.requestAnimationFrame(animate)
+      if (isDrawing) window.requestAnimationFrame(animate)
     }
     window.requestAnimationFrame(animate)
+  }
+
+  /** Renders the selection box and its components. */
+  private renderSelection = () => {
+
+    // redraws selected strokes and give them an outline
+    const drawSelectedStrokes = () => {
+      for (const stroke of this.selectedObjs) {
+        stroke.setWidth(stroke.getWidth() + this.dpr*2)
+        this.redraw([stroke], 'draw', this.activeContext, 'darkgray')
+        stroke.setWidth(stroke.getWidth() - this.dpr*2)
+        this.redraw([stroke], 'draw', this.activeContext)
+      }
+    }
+
+    // draws the selection box
+    const drawSelectionBox = () => { 
+      // get absolute coords
+      const topLeft = this.processCoord({x: this.selectionBox.x0, y: this.selectionBox.y0}, false)
+      const bottomRight = this.processCoord({x: this.selectionBox.x1, y: this.selectionBox.y1}, false)
+      // add neccessary padding (adds extra if bounding box is too small)
+      const paddingX = topLeft.x-bottomRight.x < 10*this.dpr ? 5*this.dpr : 3*this.dpr
+      const paddingY = topLeft.y-bottomRight.y < 10*this.dpr ? 5*this.dpr : 3*this.dpr
+      topLeft.x -= paddingX
+      bottomRight.x += paddingX
+      topLeft.y -= paddingY
+      bottomRight.y += paddingY
+
+      // draws box
+      this.activeContext.beginPath()
+      this.activeContext.lineWidth = Math.ceil(this.dpr/2)
+      this.activeContext.strokeStyle = 'lightgray'
+      this.activeContext.setLineDash([this.dpr, this.dpr*2]) // draws dashed lines
+      this.activeContext.strokeRect(topLeft.x, topLeft.y, bottomRight.x-topLeft.x, bottomRight.y-topLeft.y)
+      this.activeContext.stroke()
+      this.activeContext.lineWidth = this.currStroke.getWidth()
+      this.activeContext.setLineDash([]) // back to straight lines
+
+      // draws surrounding circles
+      this.activeContext.fillStyle = 'lightgray'
+      this.activeContext.strokeStyle = 'darkgray'
+      const middle = {x: (topLeft.x+bottomRight.x) / 2, y: (topLeft.y+bottomRight.y) / 2}
+      for (const xPos of [topLeft.x, middle.x, bottomRight.x])
+        for (const yPos of [topLeft.y, middle.y, bottomRight.y]) {
+          if (xPos === middle.x && yPos === middle.y) continue
+          this.activeContext.beginPath()
+          this.activeContext.arc(xPos, yPos, this.dpr*2, 0, Math.PI*2)
+          this.activeContext.fill()
+          this.activeContext.stroke()
+        }
+    }
+
+    Canvas.clearScreen(this.activeContext)
+    if (this.selectedObjs.length === 0 || this.mode !== 'select') return
+    // console.log("active render")
+    drawSelectedStrokes()
+    drawSelectionBox()
   }
 
 
@@ -455,9 +520,10 @@ class Canvas extends React.Component<Props> {
   }
 
   /** Adds an action to history. */
-  private addHistory = (action: string, data: any) => {
+  private addHistory = (action: string, data: any, log: any=undefined) => {
+    console.log("added to history:", action)
     this.historyIndex = (this.historyIndex + 1) % 100
-    this.history[this.historyIndex] = {action: action, data: data}
+    this.history[this.historyIndex] = {action: action, data: data, log: log}
     // if added something, bring origin next to history and erase anything there
     this.historyOrigin = (this.historyIndex + 1) % 100
     this.history[this.historyOrigin] = undefined
@@ -472,65 +538,81 @@ class Canvas extends React.Component<Props> {
   /** Changes the CSS zoom amount [absolute]. */
   private cssZoom = (context: any, scale: number, centerX: number=undefined, centerY: number=undefined) => {
     if (centerX !== undefined)
-      this.contentContext.canvas.style.transformOrigin = `${centerX}px ${centerY}px`
-    this.contentContext.canvas.style.transform = `scale(${scale})`
+      context.canvas.style.transformOrigin = `${centerX}px ${centerY}px`
+    context.canvas.style.transform = `scale(${scale})`
   }
 
-  /** Moves the content canvas for 1 frame. */
+  /** Moves the active & content canvases for 1 frame. */
   private animateScroll = (timestep: number) => {
     let doneChanging = true
     let needRender = false
 
     const cssResetPos = () => { // resets CSS position and need to render
       needRender = true
+      // content canvas
       this.offset.x -= this.cssOffset.x / this.scale
       this.offset.y -= this.cssOffset.y / this.scale
       this.cssOffset.x = this.cssOffset.y = 0
-      this.cssMove(this.contentContext, this.contentOffset.x, this.contentOffset.y)
+      this.cssMove(this.contentContext, this.canvasOffset.x, this.canvasOffset.y)
+      //active canvas
+      this.activeOffset.x = this.activeOffset.y = 0
+      this.cssMove(this.activeContext, this.canvasOffset.x, this.canvasOffset.y)
     }
     
     if (this.isZooming) return {done: true, render: false} // if zooming, don't scroll
 
+    let move = {x: 0, y: 0}
     if (this.toOffset.x !== 0) {
       doneChanging = false
-      const move = Canvas.smoothTransition(0, this.toOffset.x, timestep)
-      this.toOffset.x -= move
-      this.cssOffset.x += move
+      move.x = Canvas.smoothTransition(0, this.toOffset.x, timestep)
+      this.toOffset.x -= move.x
+      this.cssOffset.x += move.x
     }
     if (this.toOffset.y !== 0) {
       doneChanging = false
-      const move = Canvas.smoothTransition(0, this.toOffset.y, timestep)
-      this.toOffset.y -= move
-      this.cssOffset.y += move
+      move.y = Canvas.smoothTransition(0, this.toOffset.y, timestep)
+      this.toOffset.y -= move.y
+      this.cssOffset.y += move.y
     }
-    if (Math.abs(this.cssOffset.x) > window.innerHeight/2 || Math.abs(this.cssOffset.y) > window.innerHeight/2)
+    if (Math.abs(this.cssOffset.x) > window.innerWidth/2 || Math.abs(this.cssOffset.y) > window.innerHeight/2)
       cssResetPos() // if scrolled too far, reset CSS offset
-    else this.cssMove(this.contentContext, this.contentOffset.x+this.cssOffset.x, this.contentOffset.y+this.cssOffset.y)
+    else {
+      this.cssMove(this.contentContext, this.canvasOffset.x+this.cssOffset.x, this.canvasOffset.y+this.cssOffset.y)
+      this.moveActive(move.x, move.y)
+    }
 
     if (doneChanging) cssResetPos()
     return {done: doneChanging, render: needRender}
   }
 
-  /** Zooms the content canvas for 1 frame. */
+  /** Zooms the active & content canvases for 1 frame. */
   private animateZoom = (timestep: number) => {
     let render = false
 
     const cssResetZoom = () => {
+      render = true
+      // content canvas
       this.offset.x = this.zoomCenterRel.x - this.zoomCenterAbs.x / this.scale
       this.offset.y = this.zoomCenterRel.y - this.zoomCenterAbs.y / this.scale
       this.cssScale = 1
       this.cssZoom(this.contentContext, 1)
-      render = true
+      // active canvas
+      this.cssZoom(this.activeContext, 1)
     }
 
     if (!this.isZooming) return {done: true, render: false} // return if not currently zooming
     const zoomDiff = Canvas.smoothTransition(0, (this.toScale-this.scale)*256, timestep) / 256
     this.cssScale *= (this.scale + zoomDiff) / this.scale
     this.scale += zoomDiff
+
     if (this.cssScale > 1.5 || this.cssScale < 0.75) { // prevent CSS from zooming too much
       cssResetZoom()
     }
-    else this.cssZoom(this.contentContext, this.cssScale, this.zoomCenterAbs.x, this.zoomCenterAbs.y)
+    else {
+      this.cssZoom(this.contentContext, this.cssScale, this.zoomCenterAbs.x, this.zoomCenterAbs.y)
+      if (this.selectedObjs.length > 0)
+        this.cssZoom(this.activeContext, this.cssScale, this.zoomCenterAbs.x, this.zoomCenterAbs.y)
+    }
     
     if (this.scale === this.toScale) { // finished
       cssResetZoom()
@@ -539,78 +621,121 @@ class Canvas extends React.Component<Props> {
     }
     return {done: false, render: render}
   }
-
-  private shiftActiveCanvas = (timestep: number) => {
-    if (this.mode === 'draw') return // if drawing, don't shift canvas
-    const currentOffsetX = this.offset.x - this.cssOffset.x
-    const currentOffsetY = this.offset.y - this.cssOffset.y
-    if (this.pointerDownOffset.x === currentOffsetX && this.pointerDownOffset.y === currentOffsetY) return
-
-    const shiftX = (this.pointerDownOffset.x - currentOffsetX) / this.scale
-    const shiftY = (this.pointerDownOffset.y - currentOffsetY) / this.scale
-    console.log("shift", shiftX, shiftY)
-    this.cssMove(this.activeContext, shiftX, shiftY)
-  }
-
-  /** If the object is not on screen, scroll so it's within the center half of the screen. Optionally performs an action after scrolling.
-   * NOTE: object needs to have a 'boundingBox' property. */
-  private scrollToObj = (object: any) => {
+  
+  /** If the bounding box is not on screen, scroll so it's within the center half of the screen. */
+  private scrollToBox = (boundingBox: Box) => {
     const whereTo = () => { // returns the coord that needs to be on screen
       const toCoord = {x: 0, y: 0}
-      const boundCenter = {x: (bounds.x0+bounds.x1)/2, y: (bounds.y0+bounds.y1)/2}
+      const boundCenter = {x: (boundingBox.x0+boundingBox.x1)/2, y: (boundingBox.y0+boundingBox.y1)/2}
       // get screen size
-      const topLeft = this.processCoord({x: 0, y: 0}, 0, 2)
-      const bottomRight = this.processCoord(this.windowSize, 0, 2)
+      const topLeft = this.processCoord({x: -this.canvasOffset.x, y: -this.canvasOffset.y}, true)
+      const windowCoord = {x: this.windowSize.x-this.canvasOffset.x, y: this.windowSize.y-this.canvasOffset.y}
+      const bottomRight = this.processCoord(windowCoord, true)
       
       if (boundCenter.x < topLeft.x) {          // left
-        toCoord.x = Math.floor((topLeft.x - boundCenter.x) * this.scale) + this.windowSize.x/4
+        toCoord.x = Math.floor((topLeft.x - boundCenter.x) * this.scale) + windowCoord.x/4
       }
       else if (boundCenter.x > bottomRight.x) { // right
-        toCoord.x = Math.floor((bottomRight.x - boundCenter.x) * this.scale) - this.windowSize.x/4
+        toCoord.x = Math.floor((bottomRight.x - boundCenter.x) * this.scale) - windowCoord.x/4
       }
       if (boundCenter.y < topLeft.y) {          // top
-        toCoord.y = Math.floor((topLeft.y - boundCenter.y) * this.scale) + this.windowSize.y/4
+        toCoord.y = Math.floor((topLeft.y - boundCenter.y) * this.scale) + windowCoord.y/4
       }
       else if (boundCenter.y > bottomRight.y) { // bottom
-        toCoord.y = Math.floor((bottomRight.y - boundCenter.y) * this.scale) - this.windowSize.y/4
+        toCoord.y = Math.floor((bottomRight.y - boundCenter.y) * this.scale) - windowCoord.y/4
       }
       return toCoord
     }
-
-    const bounds = object.getBoundingBox() // get the bounds
-    if (bounds === null) return // if no bounds do nothing
 
     this.toOffset = whereTo() // calculate offset and set the offset
     this.rerender() // let animateScroll() take care of the rest
   }
 
-  /** Converts coords from one coordinate (system?) to another, returns a NEW coord object.
-   * 0: screen layer [absolute]; 1: content layer [absolute]; 2: strokes coords [relative]
+  /** Moves the active layer by (x, y) [absolute]. */
+  private moveActive = (offsetX: number, offsetY: number) => {
+    if (Math.abs(this.activeOffset.x) > window.innerWidth/2 || Math.abs(this.activeOffset.y) > window.innerHeight/2)
+      this.resetActivePos()
+    else {
+      this.activeOffset.x += offsetX
+      this.activeOffset.y += offsetY
+      this.cssMove(this.activeContext, this.canvasOffset.x+this.activeOffset.x, this.canvasOffset.y+this.activeOffset.y)
+    }
+  }
+
+  /** Adds activeOffset to everything in active layer, reset CSS, and calls rerenderActive. */
+  private resetActivePos = () => {
+    if (this.activeOffset.x === 0 && this.activeOffset.y === 0) return
+
+    if (this.currStroke.getLength() > 0) // current stroke
+      this.currStroke.addOffset(this.activeOffset.x, this.activeOffset.y)
+    for (const obj of this.selectedObjs) { // selected objects
+      obj.addOffset(this.activeOffset.x/this.scale, this.activeOffset.y/this.scale)
+    this.updateSelectionBox(this.activeOffset.x, this.activeOffset.y) // selection box
+    }
+
+    this.activeOffset.x = this.activeOffset.y = 0
+    this.cssMove(this.activeContext, this.canvasOffset.x, this.canvasOffset.y)
+    this.rerenderActive()
+  }
+
+  /** Calculates the bounding box that surrounds all objects currently selected and updates this.selectionBox. 
+   * If no objects, don't update this.selectionBox. */
+  private calcSelectionBox = () => {
+    if (this.selectedObjs.length === 0) return
+    const box = {...this.selectedObjs[0].getBoundingBox()}
+    for (let i = 1; i < this.selectedObjs.length; i++) {
+      const objBox = this.selectedObjs[i].getBoundingBox()
+      if (objBox.x0 < box.x0) box.x0 = objBox.x0
+      if (objBox.x1 > box.x1) box.x1 = objBox.x1
+      if (objBox.y0 < box.y0) box.y0 = objBox.y0
+      if (objBox.y1 > box.y1) box.y1 = objBox.y1
+    }
+
+    this.selectionBox = box
+  }
+
+  /** Updates the selection box. Takes in [absolute] offsets. */
+  private updateSelectionBox = (offsetX: number, offsetY: number) => {
+    this.selectionBox.x0 += offsetX/this.scale
+    this.selectionBox.x1 += offsetX/this.scale
+    this.selectionBox.y0 += offsetY/this.scale
+    this.selectionBox.y1 += offsetY/this.scale
+  }
+
+  /** Adds one object to selectedObjs. */
+  private addToSelection = (obj: any) => {
+    this.selectedObjs.push(obj)
+    this.calcSelectionBox()
+    this.eraseStroke(obj)
+  }
+  /** Deselect everything with an option to render. */
+  private deselect = (render=true) => {
+    if (this.selectedObjs.length === 0) return
+    for (const stroke of this.selectedObjs)
+      this.addStroke(stroke)
+    this.selectedObjs = []
+    if (render) this.renderSelection()
+  }
+
+  /** Converts coords from absolute to relative and vice versa, returns a NEW coord object.
+   * Can optionally pass in a different offset &/ scale
    */
-  private processCoord = (coord: {x: number, y: number}, from=1, to=2, offset=this.offset) => {
+  private processCoord = (coord: Coord, toRelative=true, offset=this.offset, scale=this.scale): Coord => {
     const newCoord = {x: coord.x, y: coord.y}
-    if (from === to) return newCoord // if same do nothing
-    if (from === 0) { // 0 -> 1
-      newCoord.x = newCoord.x - this.contentOffset.x
-      newCoord.y = newCoord.y - this.contentOffset.y
+
+    if (toRelative) { // to relative
+      newCoord.x = newCoord.x / scale + offset.x
+      newCoord.y = newCoord.y / scale + offset.y
     }
-    if (to === 2) { // to relative
-      newCoord.x = newCoord.x / this.scale + offset.x
-      newCoord.y = newCoord.y / this.scale + offset.y
-    }
-    if (from === 2) { // from relative
-      newCoord.x = (newCoord.x - offset.x) * this.scale
-      newCoord.y = (newCoord.y - offset.y) * this.scale
-      if (to === 0) {
-        newCoord.x = newCoord.x + this.contentOffset.x
-        newCoord.y = newCoord.y + this.contentOffset.y
-      }
+    else { // from relative
+      newCoord.x = (newCoord.x - offset.x) * scale
+      newCoord.y = (newCoord.y - offset.y) * scale
     }
     return newCoord
   }
 
   /** Returns if the current mouse coord [absolute] is on top of UI elements. */
-  private onUI = (coord: {x: number, y: number}) => {
+  private onUI = (coord: Coord): Boolean => {
     const collide = Canvas.uiBoxes.filter((b) => Canvas.withinBox(coord, b))
     if (collide.length === 0) return false
     return true
@@ -626,18 +751,18 @@ class Canvas extends React.Component<Props> {
   }
 
   /** Returns whether 2 coords are within a 'length' of each other */
-  private static withinLength = (x0: number, y0: number, x1: number, y1: number, length: number) => {
+  private static withinLength = (x0: number, y0: number, x1: number, y1: number, length: number): Boolean => {
     return Math.abs(x0-x1) <= length && Math.abs(y0-y1) <= length
   }
 
   /** Returns if a coord is within the box. Both should be passed in with the same coord system. */
-  private static withinBox = (coord: {x: number, y: number}, box: {x0: number, x1: number, y0: number, y1: number}) => {
+  private static withinBox = (coord: Coord, box: Box): Boolean => {
     if (coord.x >= box.x0 && coord.x <= box.x1 && coord.y >= box.y0 && coord.y <= box.y1) return true
     return false
   }
 
   /** Smoothly transitions from x0 to x1, returns what x0 should become in the next time step. */
-  private static smoothTransition = (x0: number, x1: number, timestep: number) => {
+  private static smoothTransition = (x0: number, x1: number, timestep: number): number => {
     const cutoff = 0.5
     if (Math.abs(x1 - x0) < cutoff) return x1
     return x0 + Math.sign(x1-x0) * ((Math.abs(x1-x0)+300)**2 / 2**13 - 10.5) * timestep/8
@@ -673,7 +798,7 @@ class Canvas extends React.Component<Props> {
     this.isPointerDown = false
     this.endDraw()
     this.endErase()
-    this.selectUp()
+    this.selectUp(nativeEvent)
   }
   private pointerMove = ({nativeEvent}: {nativeEvent: PointerEvent}) => {
     this.draw(nativeEvent)
