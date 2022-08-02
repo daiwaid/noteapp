@@ -3,7 +3,7 @@ import { Box, Coord, Point } from './Interfaces'
 /**
  * Wrapper class for strokes
  */
- class Stroke {
+export default class Stroke {
 
   /************************
           Variables
@@ -11,10 +11,10 @@ import { Box, Coord, Point } from './Interfaces'
  
   private static masterID: number = 0
   private id: number
-  private path: Point[] // normalized coords (ie. start at (0, 0))
+  protected path: Point[]
   private start: Coord
   private style: string|CanvasGradient|CanvasPattern
-  private width: number
+  protected width: number
   private scale: Coord
   private bounding: Box // bounding area (rectangle)
 
@@ -31,7 +31,7 @@ import { Box, Coord, Point } from './Interfaces'
         Functions
   ************************/
 
-  public addToPath = (x: number, y: number, pressure=0.5): void => {
+  public addToPath (x: number, y: number, pressure: number): void {
     if (this.getLength() === 0) {
       this.setStart(x, y)
     }
@@ -251,4 +251,97 @@ import { Box, Coord, Point } from './Interfaces'
   }
 }
 
-export default Stroke
+export class PressureStroke extends Stroke {
+  outline: [Coord[], Coord[]]
+
+  public constructor() {
+    super()
+    this.outline = [[], []]
+  }
+
+  public* getOutline() { // uninherited method
+    for (let i = 0; i < this.outline[0].length; i++) {
+      yield(this.outline[0][i])
+    }
+
+    // generates values in reverse order for second array
+    for (let i = this.outline[1].length - 1; i >= 0; i--) {
+      yield(this.outline[1][i])
+    }
+  }
+
+  // Adds points to outline on the fly
+  public addToPath = (x: number, y: number, pressure: number): void => {
+    super.addToPath(x, y, pressure)
+
+    // Current point must have a point to go to
+    if (this.getLength() <= 1) {
+      return;
+    }
+
+    const currPoint = this.path[this.path.length - 2]
+    if (currPoint.x === x && currPoint.y === y) {
+      return
+    }
+
+    this.addToOutline(this.getOutlinePoints(currPoint, {x: x, y: y, p: pressure}))
+  }
+
+  /**
+   * Gets array of coordinates representing the outline of the stroke
+   */
+  public refreshOutline() { // uninherited method
+    this.outline = [[], []]
+    let currPoint: Point = this.getStart()
+
+    // iterate over all except first
+    const iter = this.getCoords()
+    for (const coord of iter) {
+      if (currPoint.x !== 0 || currPoint.y !== 0) {
+        this.addToOutline(this.getOutlinePoints(currPoint))
+      }
+
+      currPoint = coord
+    }
+  }
+
+  private addToOutline(coords: [Coord, Coord]) {
+    this.outline[0].push(coords[0])
+    this.outline[1].push(coords[1])
+  }
+
+  private getOutlinePoints(currPoint: Point, nextPoint?: Point): [Coord, Coord] {
+    const getPointOffset = (): {x: number, y: number} => {
+      const getAngleBetween = (p1: Coord, p2: Coord) => {
+        if (p2 === undefined) {
+          return Math.atan2(p1.y, p1.x)
+        }
+
+        const dx = p2.x - p1.x
+        const dy = p2.y - p1.y
+
+        return Math.atan2(dy, dx)
+      }
+
+      const angleOffset = Math.PI / 2
+
+      const angle = getAngleBetween(currPoint, nextPoint)
+      // const magnitude = Math.max(Math.floor(this.width * currPoint.p), 1)
+      const magnitude = Math.max(Math.floor(Math.pow(this.width * currPoint.p, 1.15)), 1)
+      const pointAngle = angle + angleOffset
+      const pointOffset = {x: Math.cos(pointAngle) * magnitude,
+                            y: Math.sin(pointAngle) * magnitude}
+      
+      // console.log(angle)
+      // console.log(pointAngle)
+      // console.log(pointOffset)
+
+      return pointOffset
+    }
+
+    const pointOffset = getPointOffset()
+
+    return [{x: currPoint.x + pointOffset.x, y: currPoint.y + pointOffset.y},
+            {x: currPoint.x - pointOffset.x, y: currPoint.y - pointOffset.y}]
+  }
+}

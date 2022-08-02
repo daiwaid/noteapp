@@ -26,3 +26,8 @@ export interface History {
     data: Stroke[],
     log?: any
 }
+
+export enum StrokeType {
+    Pencil,
+    Chisel
+}

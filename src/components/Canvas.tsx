@@ -1,11 +1,13 @@
 import React from 'react'
 import DocumentMeta from 'react-document-meta'
-import Stroke from './Stroke'
+import Stroke, { PressureStroke } from './Stroke'
 import Tile from './Tile'
-import { Box, Coord } from './Interfaces'
+import { Box, Coord, StrokeType } from './Interfaces'
 import '../App.css'
+import { createTextChangeRange } from 'typescript'
 
 type Props = {
+  strokeType: StrokeType,
   strokeColor: string,
   strokeSize: number
 };
@@ -82,6 +84,10 @@ class Canvas extends React.Component<Props> {
   // when LMB is pressed, begins a new path and move it to the mouse's position
   private startDraw = (pointerEvent: PointerEvent) => {
     this.deselect()
+    if (this.props.strokeType === StrokeType.Chisel) {
+      this.currStroke = new PressureStroke()
+    }
+
     this.currStroke.setStyle(this.props.strokeColor)
     this.currStroke.setWidth(this.props.strokeSize)
     this.draw(pointerEvent)
@@ -99,7 +105,7 @@ class Canvas extends React.Component<Props> {
       if ((x - last.x)**2 + (y - last.y)**2 < 4*this.dpr**2) return // if didn't move much, don't record
     }
     // draws the line
-    this.currStroke.addToPath(x, y)
+    this.currStroke.addToPath(x, y, pointerEvent.pressure)
   }
   // when LMB is lifted, will close current path and add the stroke to strokes and clear currStroke
   private endDraw = () => {
@@ -110,6 +116,10 @@ class Canvas extends React.Component<Props> {
     this.currStroke.map((c: any) => this.processCoord(c, true, this.pointerDownOffset))
     // console.log("before:", this.currStroke.getLength())
     this.currStroke.done(this.scale)
+    if (this.currStroke.constructor.name === 'PressureStroke') {
+      const pCurrStroke = this.currStroke as PressureStroke
+      pCurrStroke.refreshOutline()
+    }
     // console.log("after:", this.currStroke.getLength())
     this.addStroke(this.currStroke)
     this.addHistory('draw', this.currStroke)
@@ -374,18 +384,36 @@ class Canvas extends React.Component<Props> {
 
     /** adds a stroke to be redrawn */
     const addStroke = (stroke: Stroke) => {
-      context.beginPath()
+      const strokeColor = color ? color : stroke.getStyle()
       const start = this.processCoord(stroke.getStart(), false) // processe the coord
-      context.strokeStyle = color ? color : stroke.getStyle()
-      context.lineWidth = stroke.getWidth()
-      context.moveTo(start.x, start.y)
-      context.arc(start.x, start.y, stroke.getWidth()/10, 0, Math.PI*2) // draws a circle at the starting position
 
-      for (const coord of stroke.getCoords()) {
-        const zoomed = this.processCoord(coord, false) // processes the coord
-        context.lineTo(zoomed.x, zoomed.y)
+      if (stroke.constructor.name === 'PressureStroke') { // TODO: Maybe use an enum or something instead / find a better way to handle checking classtype
+        const pStroke = stroke as PressureStroke
+        let region = new Path2D()
+        context.fillStyle = strokeColor
+        //region.moveTo(start.x, start.y)
+
+        for (const coord of pStroke.getOutline()) {
+          const zoomed = this.processCoord(coord, false) // processes the coord
+          region.lineTo(zoomed.x, zoomed.y)
+        }
+
+        region.closePath()
+        context.fill(region)
       }
-      context.stroke()
+      else { // fallback default behavior draws along strokepath
+        context.beginPath()
+        context.strokeStyle = strokeColor
+        context.lineWidth = stroke.getWidth()
+        context.moveTo(start.x, start.y)
+        context.arc(start.x, start.y, stroke.getWidth()/10, 0, Math.PI*2) // draws a circle at the starting position
+
+        for (const coord of stroke.getCoords()) {
+          const zoomed = this.processCoord(coord, false) // processes the coord
+          context.lineTo(zoomed.x, zoomed.y)
+        }
+        context.stroke()
+      }
     }
 
     // adds all strokes to be redrawn and then draws all at once
@@ -450,25 +478,39 @@ class Canvas extends React.Component<Props> {
   /** redraws this.currStroke; does not clear screen by default. */ 
   private drawCurrStroke = (clear=false) => { 
     if (this.currStroke.getLength() === 0) return // if stroke is empty return
-    if (clear) Canvas.clearScreen(this.activeContext)
-    console.log("drawing")
 
-    const offsetDiffX = (this.pointerDownOffset.x - this.offset.x) * this.scale
-    const offsetDiffY = (this.pointerDownOffset.y - this.offset.y) * this.scale
-    this.activeContext.beginPath()
-    this.activeContext.strokeStyle = this.currStroke.getStyle()
-    this.activeContext.lineWidth = this.currStroke.getWidth()
-    const start = this.currStroke.getStart()
-    // moves to start and draws a circle at the starting position
-    this.activeContext.moveTo(start.x + offsetDiffX, start.y + offsetDiffY)
-    this.activeContext.arc(start.x + offsetDiffX, start.y + offsetDiffY, this.currStroke.getWidth()/10, 0, Math.PI*2) 
-    for (const coord of this.currStroke.getCoords()) { // draws the rest
-      this.activeContext.lineTo(coord.x + offsetDiffX, coord.y + offsetDiffY)
-    }
-    const end = this.currStroke.getCoord(-1)
-    // draws a 5x circle at the ending position used as cursor
-    this.activeContext.arc(end.x + offsetDiffX, end.y + offsetDiffY, this.currStroke.getWidth()/2, 0, Math.PI*2) 
-    this.activeContext.stroke()
+        console.log("drawing")
+
+        const offsetDiffX = this.pointerDownOffset.x - (this.offset.x - this.cssOffset.x)
+        const offsetDiffY = this.pointerDownOffset.y - (this.offset.y - this.cssOffset.y)
+        const start = this.currStroke.getStart()
+        if (this.currStroke.constructor.name === 'PressureStroke') {
+          const pStroke = this.currStroke as PressureStroke
+          let region = new Path2D()
+
+          this.activeContext.fillStyle = this.currStroke.getStyle()
+          for (const coord of pStroke.getOutline()) {
+            region.lineTo(coord.x + offsetDiffX, coord.y + offsetDiffY)
+          }
+
+          region.closePath()
+          this.activeContext.fill(region)
+        }
+        else {
+          this.activeContext.beginPath()
+          this.activeContext.strokeStyle = this.currStroke.getStyle()
+          this.activeContext.lineWidth = this.currStroke.getWidth()
+          // moves to start and draws a circle at the starting position
+          this.activeContext.moveTo(start.x + offsetDiffX, start.y + offsetDiffY)
+          this.activeContext.arc(start.x + offsetDiffX, start.y + offsetDiffY, this.currStroke.getWidth()/10, 0, Math.PI*2) 
+          for (const coord of this.currStroke.getCoords()) { // draws the rest
+            this.activeContext.lineTo(coord.x + offsetDiffX, coord.y + offsetDiffY)
+          }
+          const end = this.currStroke.getCoord(-1)
+          // draws a 5x circle at the ending position used as cursor
+          this.activeContext.arc(end.x + offsetDiffX, end.y + offsetDiffY, this.currStroke.getWidth()/2, 0, Math.PI*2) 
+          this.activeContext.stroke()
+        }
   }
 
   /** Renders the selection box and its components. */
