@@ -448,12 +448,12 @@ class Canvas extends React.Component<Props> {
         if (this.currStroke.getLength() > 0) this.drawCurrStroke()
       }
       if (!doneChanging) {
-        if (callback) callback()
-        window.requestAnimationFrame(animate)
+        if (callback) callback(timestep)
+        requestAnimationFrame(animate)
       }
       else this.animating = false // stops animating
     }
-    window.requestAnimationFrame(animate)
+    requestAnimationFrame(animate)
   }
 
   /** Keeps re-rendering the active layer until mouse up. */
@@ -470,47 +470,48 @@ class Canvas extends React.Component<Props> {
       }
       else this.renderSelection()
 
-      if (this.isPointerDown) window.requestAnimationFrame(animate)
+      if (this.isPointerDown) requestAnimationFrame(animate)
     }
-    window.requestAnimationFrame(animate)
+    requestAnimationFrame(animate)
   }
 
   /** redraws this.currStroke; does not clear screen by default. */ 
   private drawCurrStroke = (clear=false) => { 
     if (this.currStroke.getLength() === 0) return // if stroke is empty return
+    if (clear) Canvas.clearScreen(this.activeContext)
 
-        console.log("drawing")
+    console.log("drawing")
 
-        const offsetDiffX = this.pointerDownOffset.x - (this.offset.x - this.cssOffset.x)
-        const offsetDiffY = this.pointerDownOffset.y - (this.offset.y - this.cssOffset.y)
-        const start = this.currStroke.getStart()
-        if (this.currStroke.constructor.name === 'PressureStroke') {
-          const pStroke = this.currStroke as PressureStroke
-          let region = new Path2D()
+    const offsetDiffX = this.pointerDownOffset.x - (this.offset.x - this.cssOffset.x)
+    const offsetDiffY = this.pointerDownOffset.y - (this.offset.y - this.cssOffset.y)
+    const start = this.currStroke.getStart()
+    if (this.currStroke.constructor.name === 'PressureStroke') {
+      const pStroke = this.currStroke as PressureStroke
+      let region = new Path2D()
 
-          this.activeContext.fillStyle = this.currStroke.getStyle()
-          for (const coord of pStroke.getOutline()) {
-            region.lineTo(coord.x + offsetDiffX, coord.y + offsetDiffY)
-          }
+      this.activeContext.fillStyle = this.currStroke.getStyle()
+      for (const coord of pStroke.getOutline()) {
+        region.lineTo(coord.x + offsetDiffX, coord.y + offsetDiffY)
+      }
 
-          region.closePath()
-          this.activeContext.fill(region)
-        }
-        else {
-          this.activeContext.beginPath()
-          this.activeContext.strokeStyle = this.currStroke.getStyle()
-          this.activeContext.lineWidth = this.currStroke.getWidth()
-          // moves to start and draws a circle at the starting position
-          this.activeContext.moveTo(start.x + offsetDiffX, start.y + offsetDiffY)
-          this.activeContext.arc(start.x + offsetDiffX, start.y + offsetDiffY, this.currStroke.getWidth()/10, 0, Math.PI*2) 
-          for (const coord of this.currStroke.getCoords()) { // draws the rest
-            this.activeContext.lineTo(coord.x + offsetDiffX, coord.y + offsetDiffY)
-          }
-          const end = this.currStroke.getCoord(-1)
-          // draws a 5x circle at the ending position used as cursor
-          this.activeContext.arc(end.x + offsetDiffX, end.y + offsetDiffY, this.currStroke.getWidth()/2, 0, Math.PI*2) 
-          this.activeContext.stroke()
-        }
+      region.closePath()
+      this.activeContext.fill(region)
+    }
+    else {
+      this.activeContext.beginPath()
+      this.activeContext.strokeStyle = this.currStroke.getStyle()
+      this.activeContext.lineWidth = this.currStroke.getWidth()
+      // moves to start and draws a circle at the starting position
+      this.activeContext.moveTo(start.x + offsetDiffX, start.y + offsetDiffY)
+      this.activeContext.arc(start.x + offsetDiffX, start.y + offsetDiffY, this.currStroke.getWidth()/10, 0, Math.PI*2) 
+      for (const coord of this.currStroke.getCoords()) { // draws the rest
+        this.activeContext.lineTo(coord.x + offsetDiffX, coord.y + offsetDiffY)
+      }
+      const end = this.currStroke.getCoord(-1)
+      // draws a 5x circle at the ending position used as cursor
+      this.activeContext.arc(end.x + offsetDiffX, end.y + offsetDiffY, this.currStroke.getWidth()/2, 0, Math.PI*2) 
+      this.activeContext.stroke()
+    }
   }
 
   /** Renders the selection box and its components. */
@@ -776,14 +777,21 @@ class Canvas extends React.Component<Props> {
 
   /** Takes in mouse coords [client] and autoscrolls if needed. */
   private autoScroll = (x: number, y: number) => {
+
+    /** Keep adding offset while mouse is stationary. */
+    const addScroll = (timestep: number=this.backupTimestep) => {
+      if (x < this.windowSize.x * 0.05) this.toOffset.x += this.windowSize.x * 0.05 - x
+      else if (x > this.windowSize.x * 0.95) this.toOffset.x += this.windowSize.x * 0.95 - x
+      if (y < this.windowSize.y * 0.05) this.toOffset.y += this.windowSize.y * 0.05 - y
+      else if (y > this.windowSize.y * 0.95) this.toOffset.y += this.windowSize.y * 0.95 - y
+
+      // if (this.lastMouseCoord.x !== x || this.lastMouseCoord.y !== y) return
+
+      if (!this.animating) this.rerender()
+    }
+
     if (!this.isPointerDown) return
-
-    if (x < this.windowSize.x * 0.05) this.toOffset.x += this.windowSize.x * 0.05 - x
-    else if (x > this.windowSize.x * 0.95) this.toOffset.x += this.windowSize.x * 0.95 - x
-    if (y < this.windowSize.y * 0.05) this.toOffset.y += this.windowSize.y * 0.05 - y
-    else if (y > this.windowSize.y * 0.95) this.toOffset.y += this.windowSize.y * 0.95 - y
-
-    if (!this.animating) this.rerender()
+    addScroll()
   }
 
   /** Moves the active layer by (x, y) [absolute]. */

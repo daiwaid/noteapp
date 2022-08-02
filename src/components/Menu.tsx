@@ -4,17 +4,13 @@ import '../App.css'
 
 export const Menu = ({setStrokeType, setStrokeColor, setStrokeSize}: {setStrokeType: any, setStrokeColor: any, setStrokeSize: any}) => {
   return (
-<<<<<<< HEAD
     <div className="Menu" style={{position: 'absolute', left: '50px', top: '-10px'}} >
-=======
-    <div className="Menu" >
       <button onClick={(e) => {setStrokeType(StrokeType.Pencil)}} style={{zIndex:99}}>
         Pencil
       </button>
       <button onClick={(e) => {setStrokeType(StrokeType.Chisel)}} style={{zIndex:99}}>
         Chisel
       </button>
->>>>>>> cb7eb244a1714685d621dd95368d80c703e9567e
       <label>Color </label>
       <input
         type="color"
