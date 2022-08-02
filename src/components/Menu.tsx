@@ -1,12 +1,16 @@
 import React from 'react'
+import { StrokeType } from './Interfaces'
 import '../App.css'
 
-export const Menu = ({setStrokeColor, setStrokeSize}: {setStrokeColor: any, setStrokeSize: any}) => {
-  // console.log(setStrokeColor)
-  // console.log(setStrokeSize)
-
+export const Menu = ({setStrokeType, setStrokeColor, setStrokeSize}: {setStrokeType: any, setStrokeColor: any, setStrokeSize: any}) => {
   return (
     <div className="Menu" >
+      <button onClick={(e) => {setStrokeType(StrokeType.Pencil)}} style={{zIndex:99}}>
+        Pencil
+      </button>
+      <button onClick={(e) => {setStrokeType(StrokeType.Chisel)}} style={{zIndex:99}}>
+        Chisel
+      </button>
       <label>Color </label>
       <input
         type="color"
