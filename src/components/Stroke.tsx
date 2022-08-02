@@ -10,11 +10,12 @@ import { Box, Coord, Point } from './Interfaces'
   ************************/
  
   private static masterID: number = 0
+  private id: number
   private path: Point[] // normalized coords (ie. start at (0, 0))
   private start: Coord
   private style: string|CanvasGradient|CanvasPattern
   private width: number
-  private id: number
+  private scale: Coord
   private bounding: Box // bounding area (rectangle)
 
   public constructor() {
@@ -22,6 +23,7 @@ import { Box, Coord, Point } from './Interfaces'
     this.style = 'black'
     this.width = 2
     this.id = Stroke.masterID++
+    this.scale = {x: 1, y: 1}
   }
 
 
@@ -65,6 +67,8 @@ import { Box, Coord, Point } from './Interfaces'
     let i = 1, r = 0
     let c0 = this.getCoord(0)
     this.bounding = {x0: c0.x, x1: c0.x, y0: c0.y, y1: c0.y} // initializes the bounding box
+    const w = this.width/2
+
     while (i+r+2 < this.getLength()) {
       // get the next 5 coords
       const c1 = this.getCoord(i)
@@ -96,19 +100,19 @@ import { Box, Coord, Point } from './Interfaces'
         r = 0
 
         // updates bounding
-        if (c1.x < this.bounding.x0) this.bounding.x0 = c1.x
-        else if (c1.x > this.bounding.x1) this.bounding.x1 = c1.x
-        if (c1.y < this.bounding.y0) this.bounding.y0 = c1.y
-        else if (c1.y > this.bounding.y1) this.bounding.y1 = c1.y
+        if (c1.x-w < this.bounding.x0) this.bounding.x0 = c1.x-w
+        else if (c1.x+w > this.bounding.x1) this.bounding.x1 = c1.x+w
+        if (c1.y-w < this.bounding.y0) this.bounding.y0 = c1.y-w
+        else if (c1.y+w > this.bounding.y1) this.bounding.y1 = c1.y+w
       }
     }
-    for (; i < this.getLength(); i++) { // updates bounding box for final few coords
+    for (i = 0; i > -2; i--) { // updates bounding box for final few coords
       const c = this.getCoord(i)
       if (c === null) continue
-      if (c.x < this.bounding.x0) this.bounding.x0 = c.x
-      else if (c.x > this.bounding.x1) this.bounding.x1 = c.x
-      if (c.y < this.bounding.y0) this.bounding.y0 = c.y
-      else if (c.y > this.bounding.y1) this.bounding.y1 = c.y
+      if (c.x-w < this.bounding.x0) this.bounding.x0 = c.x-w
+      else if (c.x+w > this.bounding.x1) this.bounding.x1 = c.x+w
+      if (c.y-w < this.bounding.y0) this.bounding.y0 = c.y-w
+      else if (c.y+w > this.bounding.y1) this.bounding.y1 = c.y+w
     }
 
     this.removeNull()
@@ -125,6 +129,8 @@ import { Box, Coord, Point } from './Interfaces'
     this.bounding.y0 += offsetY
     this.bounding.y1 += offsetY
   }
+
+  // public changeScale = 
 
   /** Applies a function to all points in the stroke. */
   public map = (f: Function): void => {

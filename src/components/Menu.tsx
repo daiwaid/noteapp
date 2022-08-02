@@ -6,7 +6,7 @@ export const Menu = ({setStrokeColor, setStrokeSize}: {setStrokeColor: any, setS
   // console.log(setStrokeSize)
 
   return (
-    <div className="Menu" >
+    <div className="Menu" style={{position: 'absolute', left: '50px', top: '-10px'}} >
       <label>Color </label>
       <input
         type="color"

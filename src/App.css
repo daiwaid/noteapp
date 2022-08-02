@@ -50,6 +50,6 @@
 }
 
 .Canvas {
-  position: relative;
+  position: absolute;
   background-color: white;
 }
