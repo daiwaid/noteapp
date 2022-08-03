@@ -323,7 +323,7 @@ class Canvas extends React.Component<Props> {
         }
         break;
     }
-    if (this.selectedObjs.length > 0) {
+    if (this.selectedObjs.length > 0) { // renders selected objects
       this.selectionBox = this.calcSelectionBox()
       this.renderSelection()
       if (!scrollToBox) scrollToBox = this.selectionBox
