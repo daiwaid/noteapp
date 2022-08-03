@@ -10,15 +10,15 @@ export default function CanvasManager() {
 
   return (
     <div className="CanvasManager">
-      <Menu 
-        setStrokeType={setStrokeType}
-        setStrokeColor={setStrokeColor}
-        setStrokeSize={setStrokeSize}
-      />
       <Canvas 
         strokeType={strokeType}
         strokeColor={strokeColor}
         strokeSize={strokeSize}
+      />
+      <Menu 
+        setStrokeType={setStrokeType}
+        setStrokeColor={setStrokeColor}
+        setStrokeSize={setStrokeSize}
       />
     </div>
   )

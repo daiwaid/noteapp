@@ -15,7 +15,6 @@ export default class Stroke {
   private start: Coord
   private style: string|CanvasGradient|CanvasPattern
   protected width: number
-  private scale: Coord
   private bounding: Box // bounding area (rectangle)
 
   public constructor() {
@@ -23,7 +22,6 @@ export default class Stroke {
     this.style = 'black'
     this.width = 2
     this.id = Stroke.masterID++
-    this.scale = {x: 1, y: 1}
   }
 
 
@@ -118,8 +116,10 @@ export default class Stroke {
     this.removeNull()
   }
 
-  /** Adds an offset to all coords as well as the bounding box. */
+  /** Adds an offset to all points as well as the bounding box. */
   public addOffset = (offsetX: number, offsetY: number): void => {
+    if (offsetX === 0 && offsetY === 0) return
+
     for (const coord of this.path) {
       coord.x += offsetX
       coord.y += offsetY
@@ -130,7 +130,39 @@ export default class Stroke {
     this.bounding.y1 += offsetY
   }
 
-  // public changeScale = 
+  /** Moves the bounding box and scales/moves the stroke to fit new box. */
+  public moveBounding = (toMove: Box) => {
+    // calculates new bounding box
+    const newBound = {x0: this.bounding.x0+toMove.x0, x1: this.bounding.x1+toMove.x1,
+                      y0: this.bounding.y0+toMove.y0, y1: this.bounding.y1+toMove.y1}
+
+    // moves points to top left
+    for (const coord of this.path) {
+      coord.x += toMove.x0
+      coord.y += toMove.y0
+    }
+
+    const moveX = toMove.x1 - toMove.x0
+    const moveY = toMove.y1 - toMove.y0
+    
+    if (moveX !== 0) { // scales x
+      const diffX = this.bounding.x1 - this.bounding.x0
+      const scaleX = (diffX + moveX) / diffX
+      
+      for (const coord of this.getCoords()) {
+        coord.x = newBound.x0 + (coord.x-newBound.x0) * scaleX
+      }
+    }
+    if (moveY !== 0) { // scales y
+      const diffY = this.bounding.y1 - this.bounding.y0
+      const scaleY = (diffY + moveY) / diffY
+      for (const coord of this.getCoords()) {
+        coord.y = newBound.y0 + (coord.y-newBound.y0) * scaleY
+      }
+    }
+
+    this.bounding = newBound
+  }
 
   /** Applies a function to all points in the stroke. */
   public map = (f: Function): void => {
