@@ -895,7 +895,7 @@ class Canvas extends React.Component<Props> {
   private zoomSelect = (movedX: number, movedY: number) => {
     if (!this.isPointerDown) return
 
-    const toMove = this.calcZoomBox(movedX, movedY)
+    const toMove = this.calcZoomBox(movedX/this.scale, movedY/this.scale)
     
     for (const obj of this.selectedObjs)
       obj.moveBounding(toMove)
@@ -903,10 +903,11 @@ class Canvas extends React.Component<Props> {
     this.renderSelection()
   }
 
-  /** Calculates toMove box based on current select mode and moved distances. */
+  /** Calculates toMove box based on current select mode and moved distances.
+   * Passed in coords are [relative]. */
   private calcZoomBox = (movedX: number, movedY: number): Box => {
-    const diffX = movedX / this.scale
-    const diffY = movedY / this.scale
+    const diffX = movedX
+    const diffY = movedY
     const mean1 = (diffX + diffY) / 2
     const mean2 = (diffX - diffY) / 2
     const toMove = {x0: 0, x1: 0, y0: 0, y1: 0}
