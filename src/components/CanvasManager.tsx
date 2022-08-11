@@ -1,6 +1,6 @@
 import React, { useState } from 'react'
 import { Menu } from './Menu'
-import { StrokeType } from './Interfaces'
+import { StrokeType } from '../Interfaces'
 import Canvas from './Canvas'
 
 export default function CanvasManager() {

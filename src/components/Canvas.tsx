@@ -2,7 +2,7 @@ import React from 'react'
 import DocumentMeta from 'react-document-meta'
 import Stroke, { PressureStroke } from './Stroke'
 import Tile from './Tile'
-import { Box, Coord, StrokeType } from './Interfaces'
+import { Box, Coord, StrokeType } from '../Interfaces'
 import '../App.css'
 
 type Props = {
@@ -111,7 +111,7 @@ class Canvas extends React.Component<Props> {
     // converts stroke coords from screen absolute to relative and add to tile
     this.currStroke.map((c: any) => this.processCoord(c, true, this.pointerDownOffset))
     // console.log("before:", this.currStroke.getLength())
-    this.currStroke.done(this.scale)
+    this.currStroke.done()
     if (this.currStroke.constructor.name === 'PressureStroke') {
       const pCurrStroke = this.currStroke as PressureStroke
       pCurrStroke.refreshOutline()
@@ -583,39 +583,39 @@ class Canvas extends React.Component<Props> {
     const my = pointerEvent.clientY + this.activeOffset.y
     const c = this.offsetMouseCoord(mx, my)
     const mouseCoord = this.processCoord(c) // convert mouse coord to relative
-    const paddingS = 2*this.dpr, paddingL = 3*this.dpr
+    const padding = 3*this.dpr/this.scale
 
     // selection box
     const b = this.selectionBox
-    if (Canvas.withinLength(mouseCoord.x, mouseCoord.y, b.x0, b.y0, paddingL)) {  // top left
+    if (Canvas.withinLength(mouseCoord.x, mouseCoord.y, b.x0, b.y0, padding)) {  // top left
       this.activeContext.canvas.style.cursor = 'nwse-resize'
       this.selectMode = 2; return
     }
-    if (Canvas.withinLength(mouseCoord.x, mouseCoord.y, b.x1, b.y0, paddingL)) {  // top right
+    if (Canvas.withinLength(mouseCoord.x, mouseCoord.y, b.x1, b.y0, padding)) {  // top right
       this.activeContext.canvas.style.cursor = 'nesw-resize'
       this.selectMode = 3; return
     }
-    if (Canvas.withinLength(mouseCoord.x, mouseCoord.y, b.x0, b.y1, paddingL)) {  // bottom  left
+    if (Canvas.withinLength(mouseCoord.x, mouseCoord.y, b.x0, b.y1, padding)) {  // bottom  left
       this.activeContext.canvas.style.cursor = 'nesw-resize'
       this.selectMode = 4; return
     }
-    if (Canvas.withinLength(mouseCoord.x, mouseCoord.y, b.x1, b.y1, paddingL)) {  // bottom right
+    if (Canvas.withinLength(mouseCoord.x, mouseCoord.y, b.x1, b.y1, padding)) {  // bottom right
       this.activeContext.canvas.style.cursor = 'nwse-resize'
       this.selectMode = 5; return
     }
-    if (Canvas.withinBox(mouseCoord, {x0: b.x0, x1: b.x1, y0: b.y0, y1: b.y0}, paddingS)) { // top
+    if (Canvas.withinBox(mouseCoord, {x0: b.x0, x1: b.x1, y0: b.y0, y1: b.y0}, padding)) { // top
       this.activeContext.canvas.style.cursor = 'ns-resize'
       this.selectMode = 6; return
     }
-    if (Canvas.withinBox(mouseCoord, {x0: b.x0, x1: b.x1, y0: b.y1, y1: b.y1}, paddingS)) { // bottom
+    if (Canvas.withinBox(mouseCoord, {x0: b.x0, x1: b.x1, y0: b.y1, y1: b.y1}, padding)) { // bottom
       this.activeContext.canvas.style.cursor = 'ns-resize'
       this.selectMode = 7; return
     }
-    if (Canvas.withinBox(mouseCoord, {x0: b.x0, x1: b.x0, y0: b.y0, y1: b.y1}, paddingS)) { // left
+    if (Canvas.withinBox(mouseCoord, {x0: b.x0, x1: b.x0, y0: b.y0, y1: b.y1}, padding)) { // left
       this.activeContext.canvas.style.cursor = 'ew-resize'
       this.selectMode = 8; return
     }
-    if (Canvas.withinBox(mouseCoord, {x0: b.x1, x1: b.x1, y0: b.y0, y1: b.y1}, paddingS)) { // right
+    if (Canvas.withinBox(mouseCoord, {x0: b.x1, x1: b.x1, y0: b.y0, y1: b.y1}, padding)) { // right
       this.activeContext.canvas.style.cursor = 'ew-resize'
       this.selectMode = 9; return
     }
@@ -947,8 +947,7 @@ class Canvas extends React.Component<Props> {
   }
 
   /** Converts coords from absolute to relative and vice versa, returns a NEW coord object.
-   * Can optionally pass in a different offset &/ scale
-   */
+   * Can optionally pass in a different offset &/ scale. */
   private processCoord = (coord: Coord, toRelative=true, offset=this.offset, scale=this.scale): Coord => {
     const newCoord = {x: coord.x, y: coord.y}
 

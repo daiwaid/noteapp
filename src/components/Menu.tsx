@@ -1,5 +1,5 @@
 import React from 'react'
-import { StrokeType } from './Interfaces'
+import { StrokeType } from '../Interfaces'
 import '../App.css'
 
 export const Menu = ({setStrokeType, setStrokeColor, setStrokeSize}: {setStrokeType: any, setStrokeColor: any, setStrokeSize: any}) => {

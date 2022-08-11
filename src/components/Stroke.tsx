@@ -1,4 +1,4 @@
-import { Box, Coord, Point } from './Interfaces'
+import { Box, Coord, Point } from '../Interfaces'
 
 /**
  * Wrapper class for strokes
@@ -36,7 +36,7 @@ export default class Stroke {
 
     const newPoint = {x: x, y: y, p: pressure}
     
-    if (this.getLength() >= 2) { // smoothes path
+    if (this.getLength() >= 2) { // smooths path
       const {newX, newY} = Stroke.bezier(this.getCoord(-2), this.getCoord(-1), newPoint)
       this.setCoord(-1, {x: newX, y: newY})
     }
@@ -61,7 +61,7 @@ export default class Stroke {
   }
 
   /** Calls when a stroke is finished, applies post processing. */
-  public done = (scale: number): void => {
+  public done = (): void => {
     let i = 1, r = 0
     let c0 = this.getCoord(0)
     this.bounding = {x0: c0.x, x1: c0.x, y0: c0.y, y1: c0.y} // initializes the bounding box

@@ -53,3 +53,7 @@
   position: absolute;
   background-color: white;
 }
+
+.ActiveCanvas {
+  position: absolute;
+}
