@@ -1,4 +1,4 @@
-import Stroke from './Stroke'
+import Stroke from './../helpers/Stroke'
 
 /**
  * Divides up the canvas into sections containing strokes to optimize the erasing process
@@ -39,12 +39,12 @@ import Stroke from './Stroke'
 
   public addStroke = (stroke: Stroke) => {
     this.strokes.push(stroke)
-    this.strokeIDs.push(stroke.getID())
+    this.strokeIDs.push(stroke.id)
   }
 
   public removeStroke = (strokeID: number) => {
     if (!this.strokeIDs.includes(strokeID)) return
-    this.strokes = this.strokes.filter((s) => s.getID() !== strokeID)
+    this.strokes = this.strokes.filter((s) => s.id !== strokeID)
     this.strokeIDs = this.strokeIDs.filter((s) => s !== strokeID)
   }
 

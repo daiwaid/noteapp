@@ -75,10 +75,10 @@ export default class Stroke implements Selectable {
   /** Updates the bounding with the last added point */
   private updateBounding(): void {
     if (this.length === 1) {
-      this.bounding = {x0: 0, x1: 0, y0: 0, y1: 0}
+      this.bounding = {x0: this.end.x, x1: this.end.x, y0: this.end.y, y1: this.end.y}
     }
     else {
-      const [xOffset, yOffset] = [this.end.x - this.start.x, this.end.y - this.start.y]
+      const [xOffset, yOffset] = [this.end.x, this.end.y]
       const box = this.bounding
 
       if (xOffset < box.x0)      { box.x0 = xOffset }
@@ -113,13 +113,17 @@ export default class Stroke implements Selectable {
     }
   }
 
-  /** Adds an offset [relative] to all points as well as the bounding box. */
-  public addOffset = (offsetX: number, offsetY: number) => {                    // done: Should be fixed
+  public addStartOffset = (offsetX: number, offsetY: number) => {
     this.start.x += offsetX
     this.start.y += offsetY
 
     this.end.x += offsetX
     this.end.y += offsetY
+  }
+
+  /** Adds an offset [relative] to all points as well as the bounding box. */
+  public addStartAndBoundingOffset = (offsetX: number, offsetY: number) => {                    // done: Should be fixed
+    this.addStartOffset(offsetX, offsetY);
 
     this.bounding.x0 += offsetX   // TODO: maybe use the helper
     this.bounding.x1 += offsetX
@@ -144,7 +148,7 @@ export default class Stroke implements Selectable {
   }
 
   /** Moves the bounding box and scales/moves the stroke to fit new box. */
-  public moveBounding = (toMove: Box) => {                                      // FORME: Should work if toMove is what I think it is (offset)
+  public moveBounding = (toMove: Box) => {
     // calculates new bounding box
     const newBound = {x0: this.bounding.x0+toMove.x0, x1: this.bounding.x1+toMove.x1,
                       y0: this.bounding.y0+toMove.y0, y1: this.bounding.y1+toMove.y1}
@@ -177,10 +181,10 @@ export default class Stroke implements Selectable {
   }
 
   public getMinBounds = (): {x: number, y: number} => {
-    return {x: this.start.x + this.bounding.x0, y: this.start.y + this.bounding.y0}
+    return {x: this.bounding.x0, y: this.bounding.y0}
   }
   public getMaxBounds = (): {x: number, y: number} => {
-    return {x: this.start.x + this.bounding.x1, y: this.start.y + this.bounding.y1}
+    return {x: this.bounding.x1, y: this.bounding.y1}
   }
 
   /** Calculates a stroke's SVG and assigns it to stroke.data. */

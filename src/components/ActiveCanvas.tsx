@@ -1,14 +1,14 @@
 import React from 'react'
 import { useRef, useEffect } from 'react'
 import { useDispatch } from 'react-redux'
-import { Coord, Point, Stroke, IndexedObj, Selectable, Box } from '../Interfaces'
+import { Coord, Point, IndexedObj, Selectable, Box } from '../Interfaces'
+import Stroke, { getAllStrokes, nearestStroke, processCoord } from '../helpers/Stroke'
 import { copyHistory } from '../helpers/deepCopy'
-import * as strokeHelper from '../helpers/strokeHelper'
 import store from "../redux/store"
 import { addPageOffset, addScale, setPageOffset, setScale } from '../redux/pageSlice'
 import { setdpr, setWindowSize } from '../redux/windowSlice'
 import { addSelectable, removeSelectable } from '../redux/selectableSlice'
-import { addHistory, redoAction, undoAction } from '../redux/historySlice'
+// import { addHistory, redoAction, undoAction } from '../redux/historySlice'                                           // TODO: FIX!!!!
 import '../App.css'
 
 
@@ -30,8 +30,7 @@ const ActiveCanvas = () => {
   let isPointerDown = false
   let mode = "draw" // the current active action/tool
   let isErasing = false
-  let currStroke: Stroke = strokeHelper.generate()
-  let currPath: Point[] = currStroke.path
+  let currStroke: Stroke = new Stroke()
   let selectedObjs: Stroke[] = []
   let canvasOffset = {x: 0, y: 0} // the starting CSS offset (so canvas is centered) [absolute]
 
@@ -67,37 +66,28 @@ const ActiveCanvas = () => {
 
     // gets current mouse position in [relative]
     const mouseCoord = offsetMouseCoord(pointerEvent.clientX, pointerEvent.clientY)
-    const relMouseCoord = strokeHelper.processCoord(mouseCoord, true)
+    const relMouseCoord = processCoord(mouseCoord, true)
     
-    if (currPath.length !== 0) { // if didn't move much, don't record
-      const last = currPath[currPath.length-1]
+    if (currStroke.length !== 0) { // if didn't move much, don't record
+      const last = currStroke.end
       const dpr = store.getState().window.dpr
       if ((relMouseCoord.x - last.x)**2 + (relMouseCoord.y - last.y)**2 < 4*dpr**2) return
     }
 
+
     // applies bezier to last coord in path before adding in new coord
     const newPoint = {x: relMouseCoord.x, y: relMouseCoord.y, p: pointerEvent.pressure}
-    if (currPath.length >= 2) {
-      const len = currPath.length
-      const n = strokeHelper.bezier(currPath[len-2], currPath[len-1], newPoint)
-      currPath[len-1].x = n.x
-      currPath[len-1].y = n.y
-    }
-    if (currPath.length === 0) // assigns start
-      currStroke.start = {x: newPoint.x, y: newPoint.y}
-
-    currPath.push(newPoint)
+    currStroke.addToPath(newPoint)
   }
   const endDraw = () => {
-    if (currPath.length === 0) return
+    if (currStroke.length === 0) return
 
-    strokeHelper.processStroke(currStroke)
+    currStroke.processStroke()
     storeStroke(currStroke)
     addToHistory('draw', [currStroke])
 
     clearScreen()
-    currStroke = strokeHelper.generate()
-    currPath = currStroke.path
+    currStroke = new Stroke()
   }
 
 
@@ -120,13 +110,13 @@ const ActiveCanvas = () => {
 
     // if mouse didn't move much or if no strokes then don't recheck
     if (withinLength(mouseCoord.x, mouseCoord.y, lastMouseCoord.x, lastMouseCoord.y, 2*dpr)) return
-    const strokes = strokeHelper.getAllStrokes()
+    const strokes = getAllStrokes()
     if (strokes.length === 0) return
 
     // convert to relative coords and try to find a stroke
-    const relMouseCoord = strokeHelper.processCoord(mouseCoord, true)
+    const relMouseCoord = processCoord(mouseCoord, true)
     const scale = store.getState().page.scale
-    const toErase = strokeHelper.nearestStroke(relMouseCoord.x, relMouseCoord.y, 5*dpr/scale)
+    const toErase = nearestStroke(relMouseCoord.x, relMouseCoord.y, 5*dpr/scale)
     if (toErase !== null) { // if found a stroke
       addToHistory('erase', [toErase])
       removeStroke(toErase)
@@ -144,7 +134,7 @@ const ActiveCanvas = () => {
 
   const selectDown = (pointerEvent: PointerEvent) => {
     const [x, y] = [pointerEvent.clientX, pointerEvent.clientY]
-    const relMouseCoord = strokeHelper.processCoord(offsetMouseCoord(x, y), true) // get relative mouse coords
+    const relMouseCoord = processCoord(offsetMouseCoord(x, y), true) // get relative mouse coords
     lastMouseCoord = {x: x, y: y} // logs the absolute coords
 
     // if clicked within selectionBox don't find new object
@@ -153,7 +143,7 @@ const ActiveCanvas = () => {
     else { // otherwise find a new object
       const scale = store.getState().page.scale
       const dpr = store.getState().window.dpr
-      const selected = strokeHelper.nearestStroke(relMouseCoord.x, relMouseCoord.y, defaultRadius*dpr/scale)
+      const selected = nearestStroke(relMouseCoord.x, relMouseCoord.y, defaultRadius*dpr/scale)
 
       deselect()
       if (!selected) return
@@ -182,7 +172,7 @@ const ActiveCanvas = () => {
 
     resetActivePos()
     const mouseCoord = offsetMouseCoord(pointerEvent.clientX, pointerEvent.clientY)
-    const selectEnd = strokeHelper.processCoord(mouseCoord, true)
+    const selectEnd = processCoord(mouseCoord, true)
     const xDiff = selectEnd.x - selectStart.x
     const yDiff = selectEnd.y - selectStart.y
     
@@ -194,7 +184,7 @@ const ActiveCanvas = () => {
       else if (selectMode !== 0) {
         const newBoxes = []
         for (const obj of selectedObjs) {
-          strokeHelper.calculateSVG(obj)
+          obj.calculateSVG()
           newBoxes.push(obj.bounding)
         }
         const log = {moved: calcZoomBox(xDiff, yDiff)}
@@ -231,7 +221,7 @@ const ActiveCanvas = () => {
       newOffset.y = zoomCenterRel.y - zoomCenterAbs.y / toScale
     }
     zoomCenterAbs = offsetMouseCoord(wheelEvent.clientX, wheelEvent.clientY)
-    zoomCenterRel = strokeHelper.processCoord(zoomCenterAbs, true)
+    zoomCenterRel = processCoord(zoomCenterAbs, true)
 
     toScale += Math.round(toScale+1) * Math.sign(-wheelEvent.deltaY) / 12 // scales how much is zoomed
     console.log("zoom", toScale)
@@ -303,7 +293,7 @@ const ActiveCanvas = () => {
         break;
       case 'move':
         for (const obj of hist.data) {
-          strokeHelper.addOffset(obj, -hist.log.movedX, -hist.log.movedY)
+          obj.addStartAndBoundingOffset(-hist.log.movedX, -hist.log.movedY)
           addToSelection(obj)
         }
         break;
@@ -311,7 +301,7 @@ const ActiveCanvas = () => {
         const inv = {x0: -hist.log.moved.x0, x1: -hist.log.moved.x1, 
                      y0: -hist.log.moved.y0, y1: -hist.log.moved.y1}
         for (const obj of hist.data) {
-          strokeHelper.moveBounding(obj, inv)
+          obj.moveBounding(inv)
           addToSelection(obj)
         }
         break;
@@ -324,7 +314,7 @@ const ActiveCanvas = () => {
     scrollToBox(scrollTo)
 
     // decrement history index
-    dispatch(undoAction())
+    // dispatch(undoAction())                                                                                           // TODO: FIX
   }
   const redo = () => {
     const history = store.getState().history
@@ -333,7 +323,7 @@ const ActiveCanvas = () => {
     if (!history.history[nextIndex]) return // if empty
 
     const hist = copyHistory(history.history[nextIndex])
-    dispatch(redoAction()) // update history index
+    // dispatch(redoAction()) // update history index                                                                   // TODO: FIX
     
     deselect(false)
     let scrollTo
@@ -382,12 +372,12 @@ const ActiveCanvas = () => {
     context.lineWidth = width * scale
 
     context.beginPath()
-    const start = strokeHelper.processCoord(stroke.start, false, localOffset) // processe the coord
+    const start = processCoord(stroke.start, false, localOffset) // processe the coord
     context.moveTo(start.x, start.y)
     context.arc(start.x, start.y, width/10, 0, Math.PI*2) // draws a circle at the starting position
 
-    for (const coord of stroke.path) {
-      const zoomed = strokeHelper.processCoord(coord, false, localOffset) // processes the coord
+    for (const coord of stroke.getPoints()) {
+      const zoomed = processCoord(coord, false, localOffset) // processes the coord
       context.lineTo(zoomed.x, zoomed.y)
     }
     context.stroke()
@@ -395,14 +385,14 @@ const ActiveCanvas = () => {
 
   /** Keeps re-rendering the canvas until mouse up. */
   const rerenderActive = () => {
-    let currLength = currPath.length
+    let currLength = currStroke.length
 
     const animate = (timeStamp: DOMHighResTimeStamp) => {
       if (mode === 'draw') {
-        if (currLength !== currPath.length && currPath.length > 0) {
+        if (currLength !== currStroke.length && currStroke.length > 0) {
           // only redraw if a new coord was added
           drawStroke(currStroke, true, undefined, undefined)
-          currLength = currPath.length
+          currLength = currStroke.length
         }
       }
       else renderSelection()
@@ -427,8 +417,8 @@ const ActiveCanvas = () => {
     // draws the selection box
     const drawSelectionBox = () => { 
       // get absolute coords
-      const topLeft = strokeHelper.processCoord({x: selectionBox.x0, y: selectionBox.y0}, false, localOffset)
-      const bottomRight = strokeHelper.processCoord({x: selectionBox.x1, y: selectionBox.y1}, false, localOffset)
+      const topLeft = processCoord({x: selectionBox.x0, y: selectionBox.y0}, false, localOffset)
+      const bottomRight = processCoord({x: selectionBox.x1, y: selectionBox.y1}, false, localOffset)
       const dpr = store.getState().window.dpr
 
       // draws box
@@ -499,7 +489,7 @@ const ActiveCanvas = () => {
     const mx = pointerEvent.clientX + cssOffset.x
     const my = pointerEvent.clientY + cssOffset.y
     const c = offsetMouseCoord(mx, my)
-    const mouseCoord = strokeHelper.processCoord(c) // convert mouse coord to relative
+    const mouseCoord = processCoord(c) // convert mouse coord to relative
     const dpr = store.getState().window.dpr
     const scale = store.getState().page.scale
     const padding = 3*dpr/scale
@@ -568,9 +558,9 @@ const ActiveCanvas = () => {
     if (toOffset.y !== 0 || toOffset.x !== 0) { // if still scrolling, add in the scrolled offset
       const scale = store.getState().page.scale
       for (const obj of newHist.data)
-        strokeHelper.addOffset(obj, -scrollOffset.x / scale, -scrollOffset.y / scale)
+        obj.addStartAndBoundingOffset(-scrollOffset.x / scale, -scrollOffset.y / scale)
     }
-    dispatch(addHistory(newHist))
+    // dispatch(addHistory(newHist))                                                                                    // TODO: FIX
   }
 
   /** Changes the CSS offset for the canvas [absolute]. */
@@ -677,10 +667,10 @@ const ActiveCanvas = () => {
     const toCoord = {x: 0, y: 0}
     const boundCenter = {x: (boundingBox.x0+boundingBox.x1)/2, y: (boundingBox.y0+boundingBox.y1)/2}
     // get screen size
-    const topLeft = strokeHelper.processCoord({x: -canvasOffset.x, y: -canvasOffset.y}, true)
+    const topLeft = processCoord({x: -canvasOffset.x, y: -canvasOffset.y}, true)
     const windowSize = store.getState().window.size
     const windowCoord = {x: windowSize.x-canvasOffset.x, y: windowSize.y-canvasOffset.y}
-    const bottomRight = strokeHelper.processCoord(windowCoord, true)
+    const bottomRight = processCoord(windowCoord, true)
 
     const whereTo = () => { // returns the coord that needs to be on screen
       const scale = store.getState().page.scale
@@ -749,11 +739,8 @@ const ActiveCanvas = () => {
   const resetActivePos = (render=true) => {
     if (cssOffset.x === 0 && cssOffset.y === 0) return
 
-    if (currPath.length > 0) // add cssOffset to all points in currPath
-      for (const point of currPath) {
-        point.x += cssOffset.x
-        point.y += cssOffset.y
-      }
+    if (currStroke.length > 0) // add cssOffset to all points in currPath
+      currStroke.addStartOffset(cssOffset.x, cssOffset.y)
     updateSelection(cssOffset.x, cssOffset.y) // selection
 
     cssOffset.x = cssOffset.y = 0
@@ -814,7 +801,7 @@ const ActiveCanvas = () => {
     selectionBox.y1 += offsetY/scale
     // selected objects
     for (const obj of selectedObjs)
-      strokeHelper.addOffset(obj, offsetX/scale, offsetY/scale)
+      obj.addStartAndBoundingOffset(offsetX/scale, offsetY/scale)
   }
 
   /** Rescales the selected objects. Mouse coord in [absolute]. */
@@ -825,7 +812,7 @@ const ActiveCanvas = () => {
     const toMove = calcZoomBox(movedX/scale, movedY/scale)
     
     for (const obj of selectedObjs)
-      strokeHelper.moveBounding(obj, toMove)
+      obj.moveBounding(toMove)
     selectionBox = calcSelectionBox()
     renderSelection()
   }

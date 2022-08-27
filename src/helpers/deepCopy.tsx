@@ -1,16 +1,4 @@
-import { Point, History, Stroke } from "../Interfaces";
-
-export const copyStroke = (stroke: Stroke): Stroke => {
-  return {
-    id: stroke.id,
-    data: stroke.data,
-    bounding: {...stroke.bounding},
-    path: copyPath(stroke.path),
-    length: stroke.length,
-    start: {...stroke.start},
-    styles: {...stroke.styles}
-  }
-}
+import { Point, History } from "../Interfaces";
 
 export const copyHistory = (history: History): History => {
   const newHist: History = {
@@ -19,7 +7,7 @@ export const copyHistory = (history: History): History => {
     log: undefined
   }
   for (const obj of history.data) {
-    newHist.data.push(copyStroke(obj))
+    newHist.data.push(obj.clone())
   }
   if (!history.log) return newHist
 

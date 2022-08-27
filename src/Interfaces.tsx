@@ -1,3 +1,5 @@
+import Stroke from './helpers/Stroke'
+
 /** A single point in a stroke. */
 export interface Point {
     x: number,
@@ -10,14 +12,6 @@ export interface Selectable {
     id: number,
     data?: any,
     bounding: Box
-}
-
-/** A single stroke. */
-export interface Stroke extends Selectable {
-    path: Point[],
-    length: number,
-    start: Coord,
-    styles?: {color: string}
 }
 
 /** A "hash map", retrive objects with its ID. */
